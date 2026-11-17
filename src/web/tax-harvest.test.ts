@@ -15,6 +15,16 @@ import { rupees } from "../core/money.ts";
 import { aiTaxEstimate } from "../ai/analysis.ts";
 import { STYLESHEET as STYLES } from "./styles.ts";
 import { addDays, fiscalYearOf, todayIST } from "../core/dates.ts";
+import { GAINS_RULES } from "../domain/capital-gains-tax.ts";
+
+/*
+ * ENGINE-2 · The card is for the year in progress, and a year whose gains rules
+ * are not in the app is refused (no card), so from 1 April until that year's
+ * rules are added these tests have nothing to look at. Skipped, saying why,
+ * rather than failing every run from that day.
+ */
+const NO_RULES = !(fiscalYearOf(todayIST()) in GAINS_RULES)
+  && "this financial year's capital gains rules are not in the app yet";
 
 const actor = { memberId: "m", source: "ui" as const };
 let app: TestApp;
@@ -54,7 +64,7 @@ before(async () => {
 });
 after(async () => { await app.close(); await priya.close(); });
 
-test("the Tax page shows the unused exemption and a FIFO suggestion, with its caveats", async () => {
+test("the Tax page shows the unused exemption and a FIFO suggestion, with its caveats", { skip: NO_RULES }, async () => {
   const page = (await (await app.get("/tax")).text()).replace(/\s+/g, " ");
   assert.ok(page.includes('id="harvest"'), "the card is on the page");
   const card = page.slice(page.indexOf('id="harvest"'), page.indexOf("</section>", page.indexOf('id="harvest"')));
@@ -77,7 +87,7 @@ test("another year shows no card: the exemption is the current year's", async ()
   assert.ok(!page.includes('id="harvest"'));
 });
 
-test("another member's holdings are not in this member's card", async () => {
+test("another member's holdings are not in this member's card", { skip: NO_RULES }, async () => {
   const res = await priya.get("/tax");
   assert.equal(res.status, 200);
   const page = (await res.text()).replace(/\s+/g, " ");
@@ -86,13 +96,13 @@ test("another member's holdings are not in this member's card", async () => {
   assert.match(page, /You hold no listed shares or equity funds of your own/);
 });
 
-test("Portfolio points to the Tax page's card", async () => {
+test("Portfolio points to the Tax page's card", { skip: NO_RULES }, async () => {
   const page = (await (await app.get("/portfolio")).text()).replace(/\s+/g, " ");
   assert.match(page, /Tax-free long-term gains/);
   assert.match(page, /href="\/tax#harvest"/);
 });
 
-test("the AI tax estimate carries the same figures, and only the member's own", () => {
+test("the AI tax estimate carries the same figures, and only the member's own", { skip: NO_RULES }, () => {
   const mine = aiTaxEstimate(db, "m", {}) as { ltcg_harvest: { unused: number; holdings: { instrument_name: string; suggest_units: number }[] } };
   assert.equal(mine.ltcg_harvest.unused, 125000);
   assert.deepEqual(mine.ltcg_harvest.holdings.map((h) => [h.instrument_name, h.suggest_units]), [["Fictional Harvest Co", 416]]);
