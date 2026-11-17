@@ -100,6 +100,19 @@ test("the AI tax estimate carries the same figures, and only the member's own", 
   assert.deepEqual(hers.ltcg_harvest.holdings, []);
 });
 
+test("WEB-1 · with FEATURE_ASSETS off the AI tax estimate leaves the holdings out, as the page does", async () => {
+  const off = await startTestApp(db, { memberId: "m", config: { features: { assets: false } } });
+  try {
+    const page = await (await off.get("/tax")).text();
+    assert.ok(!page.includes('id="harvest"'));
+  } finally {
+    await off.close();
+  }
+  const est = aiTaxEstimate(db, "m", {}, { features: { assets: false } }) as { ltcg_harvest: unknown };
+  assert.equal(est.ltcg_harvest, null);
+  assert.ok(!JSON.stringify(est).includes("Fictional Harvest Co"));
+});
+
 test("printing keeps the caveats with the card", () => {
   const print = STYLES.slice(STYLES.indexOf("@media print"));
   assert.match(print, /\.harvest-caveats \{[^}]*break-inside: avoid/);
