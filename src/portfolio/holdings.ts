@@ -77,7 +77,8 @@ export function formatUnits(u: Milliunits): string {
 export function formatPrice(p: MicroRupees): string {
   const value = p / PRICE_SCALE;
   // NAVs are quoted to four decimals; equities to two. Show what is there.
-  return value.toFixed(value * 100 === Math.round(value * 100) ? 2 : 4);
+  // W18-UI-2 · Asked of the integer: 1108.6 × 100 is not whole in floating point.
+  return value.toFixed(p % (PRICE_SCALE / 100) === 0 ? 2 : 4);
 }
 
 /**
