@@ -171,7 +171,7 @@ function figureAfter(details: string, label: RegExp): number | null {
 
 /** The parser proper, over already-extracted text. */
 export function parseSafeGoldText(text: string): SafeGoldStatement {
-  const lines = text.replace(/−/g, "-").split("\n").map((l) => l.replace(/\s+$/, ""));
+  const lines = text.replace(/−/g, "-").split("\n").map((l) => l.trimEnd());
 
   const opening = walletBalance(lines, "Opening");
   const closing = walletBalance(lines, "Closing");
