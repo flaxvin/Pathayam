@@ -4,7 +4,7 @@
  * Every other test in the suite starts from an empty database, which makes a
  * whole class of migration bug invisible: rebuilding a table behaves quite
  * differently when other tables hold rows pointing at it. Migration 0026 passed
- * 851 tests and then failed on the first real database it met.
+ * the whole suite and then failed on the first real database it met.
  *
  * So this stops at the version before each rebuild, writes rows into the tables
  * that reference the table about to be rebuilt, and applies the rest.

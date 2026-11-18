@@ -111,7 +111,7 @@ First production release. Everything built since 19-09-2026, in one version.
 - **Operations.** Server-only, SQLite, no runtime dependencies, 67 migrations,
   backups with restore verification, `/healthz`, Docker and Fly.io deploys.
   `/healthz` and the Health screen now report the version from one constant.
-- **Verification.** 2684 tests, including the accounting identity and the
+- **Verification.** The test suite includes the accounting identity and the
   cache-against-ledger check over a 36-month household simulation.
 
 Merged into this release: #1-#3 (engine, security, loan, import and UI fix
