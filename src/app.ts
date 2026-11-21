@@ -187,7 +187,7 @@ import {
   derivedWorth, accountRows, cardsDue, overviewData, portfolioData, taxPageModel, scheduleInScope,
 } from "./web/screen-data.ts";
 import {
-  queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
+  queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense, incomeAndSpending,
   outstandingReimbursements, capitalGainsByYear, loanInterestByFinancialYear, categoryTrend,
   spendingCalendar, spendByTag, rowsToCsv, type GroupBy, type TransactionFilter,
 } from "./domain/reports.ts";
@@ -7364,7 +7364,8 @@ export function buildApp(deps: AppDeps): {
         tax: config.features.tax,
         insights: spendingInsights(db, todayIST(), 6, viewer(ctx)),
         gains: config.features.assets ? capitalGainsByYear(db, viewer(ctx)) : [],
-        trend: incomeVsExpense(db, period.from, period.to, scope, viewer(ctx)),
+        // DECA-2 · Out is envelope spending, as on the Overview (B78): card swipes count.
+        trend: incomeAndSpending(db, period.from, period.to, scope, viewer(ctx)),
         categorySpend: categorySpend.map((g) => ({ label: g.label, value: g.value })),
         categoryTrends,
         tagSpend: spendByTag(db, period.from, period.to, viewer(ctx)),
