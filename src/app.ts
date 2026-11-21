@@ -361,7 +361,7 @@ import {
   units as toUnits, price as toUnitPrice, formatUnits, parseUnitPrice, type MicroRupees,
 } from "./portfolio/holdings.ts";
 import { searchSchemes } from "./portfolio/providers.ts";
-import { refreshPrices, MANUAL_REFRESH, manualRefreshTooSoon, DEMO_REFRESH_NOTICE } from "./portfolio/refresh.ts";
+import { refreshPrices, MANUAL_REFRESH, manualRefreshTooSoon, DEMO_REFRESH_NOTICE, isinChangeFor } from "./portfolio/refresh.ts";
 import { handleMcp } from "./ai/mcp.ts";
 import { buildTools, MCP_INSTRUCTIONS, writeInstructions } from "./ai/tools.ts";
 import {
@@ -9936,6 +9936,7 @@ export function buildApp(deps: AppDeps): {
         history: priceHistory(db, view.instrument.id, 40),
         today: todayIST(),
         bhavcopy: config.bhavcopyPrices,
+        isinChange: isinChangeFor(db, view.instrument),
       }),
     );
   });

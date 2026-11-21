@@ -1473,6 +1473,11 @@ ticker you would search for on NSE, such as <code>RELIANCE</code> or
     one NSE does not list is looked up in BSE's file.</li>
   <li><strong>Matched by ISIN or symbol, never by name</strong>, so two companies with
     similar names cannot be confused.</li>
+  <li><strong>A new ISIN stops the price.</strong> If the exchanges list your share's
+    symbol under a different ISIN, which usually follows a split or another change in
+    face value, its price
+    is not updated and the holding page says so. Check the units, then put in the
+    new ISIN.</li>
   <li><strong>Nothing about what you hold is sent.</strong> The server downloads the
     day's whole file, the same one for everybody, and looks your holdings up in it.
     One download per exchange per day prices every holding in the household.</li>

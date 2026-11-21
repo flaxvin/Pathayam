@@ -374,8 +374,11 @@ async function attempt(
    * PRICES-1 · An instrument set up for Alpha Vantage, with a key configured,
    * still has it when the exchange files could not price it. Not the other
    * way round: the files are the exchange's own close and cost no quota.
+   * PRICES-3 · Not when the files say the ISIN changed: the ticker's price is
+   * the same post-split price the files were not trusted for.
    */
-  if (!result.ok && provider.name === "bhavcopy" && instrument.provider === "alphavantage" &&
+  if (!result.ok && result.reason !== "isin-changed" &&
+      provider.name === "bhavcopy" && instrument.provider === "alphavantage" &&
       opts.alphaVantageKey && instrument.symbol && mayCall("alphavantage") &&
       budget.left() > backoffMs(1)) {
     const fallback = await PROVIDERS.alphavantage!.fetchPrice(instrument.symbol, fetchOpts("alphavantage"));
@@ -455,6 +458,27 @@ export function bhavcopyCanPrice(instrument: Instrument): boolean {
 function pricingProvider(instrument: Instrument, opts: RefreshOptions): Provider | null {
   if (opts.bhavcopy !== false && bhavcopyCanPrice(instrument)) return PROVIDERS.bhavcopy!;
   return providerFor(instrument.provider);
+}
+
+/**
+ * PRICES-3 · The ISIN the exchanges now list this share's symbol under, when
+ * its latest fetch was refused for that reason and the holding still carries
+ * the old ISIN. Gone once the ISIN is updated, the share is pinned to manual
+ * prices, or a later fetch prices it.
+ */
+export function isinChangeFor(
+  db: DB, instrument: Pick<Instrument, "id" | "isin" | "manual_only">,
+): { newIsin: string; detail: string } | null {
+  if (instrument.manual_only) return null;
+  const last = queryOne<{ status: string; detail: string | null }>(
+    db,
+    `SELECT status, detail FROM price_fetches WHERE instrument_id = ? ORDER BY id DESC LIMIT 1`,
+    instrument.id,
+  );
+  if (last?.status !== "isin-changed" || !last.detail) return null;
+  const newIsin = /\bIN[A-Z0-9]{9}[0-9]\b/.exec(last.detail)?.[0];
+  if (!newIsin || newIsin === (instrument.isin ?? "").toUpperCase()) return null;
+  return { newIsin, detail: last.detail };
 }
 
 /** The last date this class was fetched at all. */

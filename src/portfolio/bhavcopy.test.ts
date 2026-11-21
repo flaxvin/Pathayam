@@ -10,12 +10,13 @@ import { deflateRawSync, crc32 } from "node:zlib";
 import { openDatabase, ensureHousehold, execute, queryAll } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
-import { createAssetAccount, findOrCreateInstrument, recordPurchase, latestPrice } from "../domain/assets.ts";
+import { createAssetAccount, findOrCreateInstrument, recordPurchase, latestPrice, listHoldings, getInstrument } from "../domain/assets.ts";
 import {
   readCsvFromZip, ZipRefused, parseBhavcopy, parseIdentifier, findRow, priceFromBhavcopy,
   clearBhavcopyCache, bhavcopyUrl, bhavcopyDownloadsToday, LIMITS, BHAVCOPY_HEADERS,
 } from "./bhavcopy.ts";
-import { refreshPrices } from "./refresh.ts";
+import { refreshPrices, isinChangeFor } from "./refresh.ts";
+import { freshDb, seedMember, startTestApp } from "../web/harness.test-data.ts";
 
 const HEADER =
   "TradDt,BizDt,Sgmt,Src,FinInstrmTp,FinInstrmId,ISIN,TckrSymb,SctySrs,XpryDt,FininstrmActlXpryDt," +
@@ -262,9 +263,12 @@ describe("PRICES-1 · pricing a holding", () => {
     assert.equal(r.price, 45_500_000, "BSE ONLY LTD's close, not the NSE namesake's 999");
     assert.equal(r.isin, "INE999Z01019");
 
-    // An ISIN on neither file (it changed, say, after a split) still falls back to the symbol.
+    // PRICES-3 · An ISIN on neither file whose symbol is listed under another
+    // ISIN (it changed, say, after a split) is not priced from that row.
     const moved = await priceFromBhavcopy("INE002A01026", "RELIANCE", { fetchImpl: impl, now: MONDAY_EVENING });
-    assert.ok(moved.ok && moved.price === 1_339_700_000);
+    assert.ok(!moved.ok);
+    assert.equal(moved.reason, "isin-changed");
+    assert.equal(moved.newIsin, "INE002A01018");
   });
 
   test("on neither: not-found, saying which files were read", async () => {
@@ -489,6 +493,112 @@ describe("PRICES-1 · the refresh uses it for Indian shares and ETFs", () => {
     const { impl, calls } = exchanges({});
     await refreshPrices(db, actor, { fetchImpl: impl, force: true, sleep: async () => {}, random: () => 0, now: MONDAY_EVENING });
     assert.ok(calls.every((c) => !c.url.includes("nseindia") && !c.url.includes("bseindia")));
+    db.close();
+  });
+});
+
+/*
+ * PRICES-3 · A share whose ISIN is on neither file, but whose symbol is listed
+ * under another ISIN — what a split or face-value change looks like. Priced by
+ * the symbol, pre-split units showed at the post-split price: a 1:10 split
+ * read as a 90% fall. Now nothing is recorded and the holding says why.
+ */
+describe("PRICES-3 · a share whose ISIN changed", () => {
+  const actor: Actor = { memberId: "m-ravi", source: "job" };
+  const OLD = "INE002A01026";
+  const NEW = "INE002A01018";
+  const files = () => exchanges({
+    [nse("2026-11-16")]: { body: nseZip("2026-11-16"), type: "application/zip" },
+    [bse("2026-11-16")]: { body: bseCsv("2026-11-16") },
+  });
+  const run = (db: ReturnType<typeof freshDb>, impl: typeof fetch, extra = {}) =>
+    refreshPrices(db, actor, {
+      fetchImpl: impl, force: true, sleep: async () => {}, random: () => 0, now: MONDAY_EVENING, ...extra,
+    });
+
+  function setup(provider: "manual" | "alphavantage" = "manual") {
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    const account = createAssetAccount(db, actor, { name: "Demat", subtype: "investment", openingDate: "2026-04-01" });
+    const instrument = findOrCreateInstrument(db, actor, {
+      name: "Reliance (pre-split)", kind: "equity", isin: OLD,
+      symbol: provider === "alphavantage" ? "RELIANCE.BSE" : "RELIANCE", provider,
+    });
+    recordPurchase(db, actor, {
+      accountId: account.id, instrumentId: instrument.id, tradeDate: "2026-04-05", price: 13_000_000_000, units: 10_000,
+    });
+    const holdingId = listHoldings(db).find((h) => h.instrument_id === instrument.id)!.id;
+    return { db, instrument, holdingId };
+  }
+
+  test("the provider says the ISIN changed and names the new one, on either exchange's symbol", async () => {
+    const r = await priceFromBhavcopy(OLD, "RELIANCE", { fetchImpl: files().impl, now: MONDAY_EVENING });
+    assert.ok(!r.ok);
+    assert.equal(r.reason, "isin-changed");
+    assert.equal(r.newIsin, NEW);
+    assert.match(r.message, /new ISIN, INE002A01018 \(NSE RELIANCE, 2026-11-16\)/);
+
+    clearBhavcopyCache();
+    const byCode = await priceFromBhavcopy(OLD, "BSE:500325", { fetchImpl: files().impl, now: MONDAY_EVENING });
+    assert.ok(!byCode.ok && byCode.reason === "isin-changed" && byCode.newIsin === NEW);
+
+    // The ISIN still listed: priced as ever.
+    clearBhavcopyCache();
+    const same = await priceFromBhavcopy(NEW, "RELIANCE", { fetchImpl: files().impl, now: MONDAY_EVENING });
+    assert.ok(same.ok && same.price === 1_339_700_000);
+  });
+
+  test("with one exchange unreachable it reports the outage, not a new ISIN", async () => {
+    const { impl } = exchanges({
+      [nse("2026-11-16")]: { status: 503, body: "busy" },
+      [bse("2026-11-16")]: { body: bseCsv("2026-11-16") },
+    });
+    const r = await priceFromBhavcopy(OLD, "RELIANCE", { fetchImpl: impl, now: MONDAY_EVENING });
+    assert.ok(!r.ok);
+    assert.equal(r.reason, "unavailable");
+    assert.equal(r.newIsin, undefined);
+  });
+
+  test("the refresh records no price, and the holding page says to check units and update the ISIN", async () => {
+    const { db, instrument, holdingId } = setup();
+    const outcome = await run(db, files().impl);
+    assert.equal(outcome.updated, 0);
+    assert.equal(outcome.failed, 1);
+    assert.ok(outcome.notes.some((n) => n.includes("new ISIN, INE002A01018")), outcome.notes.join("; "));
+    assert.equal(latestPrice(db, instrument.id, "2026-11-16"), null, "no post-split price against pre-split units");
+    assert.equal(isinChangeFor(db, getInstrument(db, instrument.id)!)?.newIsin, NEW);
+
+    const app = await startTestApp(db, { memberId: "m-ravi" });
+    try {
+      const page = await (await app.get(`/portfolio/${holdingId}`)).text();
+      assert.match(page, /This share now trades under a new ISIN, INE002A01018\./);
+      assert.match(page, /Check the units/);
+
+      // The member updates the ISIN: the note goes at once, and the next refresh prices it.
+      const saved = await app.post(`/portfolio/instrument/${instrument.id}/identifier`, {
+        holding_id: holdingId, isin: NEW, symbol: "RELIANCE",
+      });
+      assert.equal(saved.status, 303);
+      assert.doesNotMatch(await (await app.get(`/portfolio/${holdingId}`)).text(), /now trades under a new ISIN/);
+      assert.equal(isinChangeFor(db, getInstrument(db, instrument.id)!), null);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+    clearBhavcopyCache();
+    const after = await run(db, files().impl);
+    assert.equal(after.updated, 1, after.notes.join("; "));
+    assert.equal(latestPrice(db, instrument.id, "2026-11-16")!.price, 1_339_700_000);
+    db.close();
+  });
+
+  test("an Alpha Vantage share is not priced by its ticker instead", async () => {
+    const { db, instrument } = setup("alphavantage");
+    const { impl, calls } = files();
+    const outcome = await run(db, impl, { alphaVantageKey: "demo-key" });
+    assert.equal(outcome.updated, 0);
+    assert.ok(calls.every((c) => !c.url.includes("alphavantage")), "no fallback to the ticker");
+    assert.equal(latestPrice(db, instrument.id), null);
     db.close();
   });
 });

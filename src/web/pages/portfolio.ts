@@ -719,6 +719,8 @@ export function renderHoldingDetail(opts: {
   today: IsoDate;
   /** PRICES-1 · Whether the exchanges' closing files are read (BHAVCOPY_PRICES). Omitted is on. */
   bhavcopy?: boolean;
+  /** PRICES-3 · The exchanges list its symbol under a new ISIN; its price was not updated. */
+  isinChange?: { newIsin: string } | null;
 }): SafeHtml {
   const v = opts.view;
   const exchangePriced = (v.instrument.kind === "equity" || v.instrument.kind === "etf") &&
@@ -769,6 +771,18 @@ export function renderHoldingDetail(opts: {
           : html`No price recorded yet, so the value above uses average cost.
                  <a href="/portfolio/${v.holding.id}/price">Enter one</a>`}
       </p>
+
+      ${when(opts.isinChange, () => html`
+        <!-- PRICES-3 · Priced by symbol after an ISIN change, a split would show as a crash. -->
+        <p class="notice notice-warning">
+          <strong>This share now trades under a new ISIN, ${opts.isinChange!.newIsin}.</strong>
+          That usually follows a split or another change in face value, and the
+          units here may be from before it, so the latest price was not recorded.
+          Check the units against your broker or depository statement (use
+          <a href="/portfolio/${v.holding.id}/split">Split or bonus</a> if they need
+          adjusting), then put the new ISIN under <em>Where its price comes from</em>.
+        </p>
+      `)}
 
       ${when(v.xirr !== null && Math.abs(v.absoluteReturn - v.xirr!) >= 2, () => html`
         <p class="field-hint">
