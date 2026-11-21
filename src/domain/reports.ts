@@ -574,7 +574,7 @@ export function loanInterestByFinancialYear(
             COALESCE(NULLIF(a.nickname, ''), a.name) AS loan
        FROM loan_payments p JOIN loans l ON l.id = p.loan_id
        JOIN accounts a ON a.id = l.account_id
-      WHERE p.amount > 0${seen.sql}
+      WHERE p.amount > 0 AND p.kind <> 'charge'${seen.sql}
       ORDER BY p.date`,
     ...seen.params,
   );
