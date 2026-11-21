@@ -26,10 +26,10 @@
  */
 
 import type { DB } from "../db/db.ts";
-import { queryOne, execute, transact } from "../db/db.ts";
+import { queryOne, execute, transact, newId } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { appendEvent } from "../core/events.ts";
-import { todayIST, monthOf, type IsoDate } from "../core/dates.ts";
+import { todayIST, nowIST, monthOf, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { Refusal } from "../core/refusal.ts";
 import { getAccount, paymentCategoryFor } from "./accounts.ts";
@@ -219,6 +219,29 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
     }
 
     /*
+     * DECA-3 · …and recorded as the plan's charge, as the GST on each
+     * instalment's interest is (EMI-GST-1): no principal, no interest, so the
+     * outstanding, net worth and spending are untouched — the money is the
+     * card charge above, counted once, in the fee's envelope. Without it the
+     * conversion said "costing ₹3,234.82 in interest, GST and fees" and the
+     * plan's page said "Total cost of borrowing ₹2,882", the fee left out.
+     */
+    let feeChargeId: string | null = null;
+    if (feeWithGst > 0) {
+      feeChargeId = newId();
+      execute(
+        db,
+        `INSERT INTO loan_payments
+           (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,loan_transaction_id,
+            note,created_at,created_by)
+         VALUES (?,?,?,?,0,0,0,'charge',?,NULL,?,?,?)`,
+        feeChargeId, loan.id, date, feeWithGst, feeTransactionId,
+        `Processing fee ${formatPaise(fee)} + ${GST_PCT}% GST, charged to the card`,
+        nowIST(), actor.memberId,
+      );
+    }
+
+    /*
      * §7.4 · And the money that was set aside to clear the card follows the debt.
      *
      * Charging ₹60,000 to a card put ₹60,000 into the card's payment envelope
@@ -268,7 +291,7 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
       entity: "loan", entityId: loan.id, action: "convert-to-emi",
       // What undoing it has to take back (MONEY-CORE-24): the fee, and the
       // envelope move. The plan and its draw are the loan's own.
-      after: { amount, tenureMonths: input.tenureMonths, fee: feeWithGst, feeTransactionId, moved },
+      after: { amount, tenureMonths: input.tenureMonths, fee: feeWithGst, feeTransactionId, feeChargeId, moved },
       summary:
         `Converted ${formatPaise(amount)} on ${card.nickname || card.name} to ` +
         `${input.tenureMonths} instalments — ${formatPaise(interest)} interest, ` +

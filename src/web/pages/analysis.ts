@@ -400,6 +400,12 @@ export function renderReports(opts: {
 
     <section class="card">
       <h2>Income and spending</h2>
+      <p class="faint" data-testid="income-spending-basis">
+        Out is what left your envelopes, the same as "Spent this month" on the
+        overview: a card purchase counts on the day it was made, and paying the
+        card off is not counted again. In is money that arrived in your budget
+        accounts; a loan paid in and a sale's proceeds are left out.
+      </p>
       ${opts.trend.length === 0
         ? html`<p class="faint">Not enough history yet.</p>`
         : html`

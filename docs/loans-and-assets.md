@@ -420,7 +420,12 @@ Both files share the UDiFF header (`TradDt`, `ISIN`, `TckrSymb`, `SctySrs`,
 `FinInstrmId`, `FinInstrmNm`, `ClsPric`, ...), read by name. A holding is
 matched by ISIN first, then by symbol (NSE's ordinary series, EQ, ahead of BE,
 BZ, SM and ST) or BSE scrip code (`FinInstrmId` in BSE's file). NSE's file is
-read first and BSE's when NSE does not list it. The refresh walks back up to
+read first and BSE's when NSE does not list it. When a holding's ISIN is on
+neither file but its symbol or code is listed under a different ISIN (PRICES-3:
+usually a split or face-value change), no price is recorded and the holding
+page says the share now trades under the new ISIN and asks the member to check
+the units and update the ISIN; an Alpha Vantage share is not priced by its
+ticker instead. This is said only when both files were read. The refresh walks back up to
 seven days over weekends and holidays; the price is dated by the file's
 `TradDt`, never by the day it was fetched. Both files were last modified about
 16:35 IST on 13-11-2026, so the equity refresh waits until 18:00 IST; the time
@@ -445,6 +450,22 @@ the jitter at most a quarter of a second, and the whole run 12 seconds. The
 AMFI fallback is skipped when there is no time left for it, and instruments not
 reached in time keep their cached prices; the notice says how many were
 refreshed, how many failed and how many it ran out of time for.
+
+The button fetches at most once every five minutes per household
+(`MANUAL_REFRESH_GAP_MS`): a press sooner than that fetches nothing and says
+when prices were last refreshed and when it can be used again. The last press
+is read from the event log, so a restart does not reset it. With `DEMO_MODE`
+on, the button fetches nothing at all and says so; the demo's prices come from
+the scheduled runs.
+
+Besides the six-hourly tick, every instance (the demo included) refreshes every
+held price at 00:00 IST each night (`src/portfolio/nightly.ts`), an in-process
+timer like housekeeping. It skips the per-class cadence, since nothing is due
+by those hours at midnight, but not the ceilings: the exchanges' twelve
+downloads a day and each provider's daily cap still hold, and with
+`FEATURE_ASSETS` off it fetches nothing. A process that is not running at
+midnight does not make it up later; the six-hourly tick still runs once it is
+back.
 
 Prices and valuations older than the configured threshold are reported as stale
 on the health page and beside the figures they affect.

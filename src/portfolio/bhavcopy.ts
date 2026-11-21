@@ -582,6 +582,24 @@ export async function priceFromBhavcopy(
   }
   for (const day of days) {
     const row = id.isin ? findRow(day, id) : null;
+    /*
+     * PRICES-3 · The ISIN is on neither file but the symbol (or BSE code) is,
+     * under another ISIN. An ISIN changes mainly when the face value does —
+     * a split, or a consolidation — so the units recorded are likely from
+     * before it, and that row's close against them would show, after a 1:10
+     * split, a 90% fall that never happened. Not recorded; the holding says why.
+     * Said only when every exchange's file was read: with one unreachable,
+     * the old ISIN may simply be on that one, and the outage is reported.
+     */
+    if (row && row.isin && row.isin !== id.isin) {
+      if (days.length < order.length) continue;
+      return {
+        ok: false, reason: "isin-changed", source: "bhavcopy", newIsin: row.isin,
+        message:
+          `Now trades under a new ISIN, ${row.isin} (${day.exchange} ${row.symbol}, ${day.tradeDate}), ` +
+          `so its price was not updated.`,
+      };
+    }
     if (row) return found(row);
     failures.push(`${day.exchange}'s file for ${day.tradeDate} does not list it.`);
   }

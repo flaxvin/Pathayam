@@ -92,6 +92,15 @@ export interface RegimeRules {
    */
   s80ccd2CapBp: number;
   s80ccd2GovernmentCapBp: number;
+  /**
+   * DECA-1 · Interest deductions, Chapter VI-A, so null under the new regime
+   * (115BAC; 202(1) of the 2025 Act). 80TTA: savings-bank interest, for
+   * anyone who is not a resident senior citizen. 80TTB: interest on bank,
+   * post-office and co-operative deposits, savings and fixed alike, for a
+   * resident senior citizen, in place of 80TTA.
+   */
+  s80ttaCap: Paise | null;
+  s80ttbCap: Paise | null;
 }
 
 const RUPEE = 100;
@@ -179,6 +188,21 @@ export const RULES: Record<number, Record<Regime, RegimeRules>> = {
        */
       s80ccd2CapBp: 1000,
       s80ccd2GovernmentCapBp: 1400,
+      /*
+       * DECA-1 · 80TTA ₹10,000 (savings-bank interest, non-senior citizens)
+       * and 80TTB ₹50,000 (deposit interest, resident senior citizens), old
+       * regime only. [verified 21-11-2026] for FY 2025-26 (AY 2026-27):
+       * incometax.gov.in/iec/foportal/help/individual/return-applicable-1
+       * (salaried) and -2 (senior citizens), which also list the only
+       * deductions the new regime keeps — neither of these. FY 2026-27, under
+       * the Income-tax Act, 2025: the ₹50,000 senior-citizen deduction is
+       * s153(1)(b) [verified 21-11-2026, incometaxindia.gov.in "FAQs for
+       * senior citizens", tax year 2026-27, "available only under the normal
+       * tax regime"]; the ₹10,000 savings-interest deduction carried into the
+       * same Act is [unverified] — the Act's text could not be fetched.
+       */
+      s80ttaCap: R(10_000),
+      s80ttbCap: R(50_000),
     },
     new: {
       slabs: [
@@ -210,6 +234,9 @@ export const RULES: Record<number, Record<Regime, RegimeRules>> = {
        */
       s80ccd2CapBp: 1400,
       s80ccd2GovernmentCapBp: 1400,
+      // DECA-1 · Neither under the new regime; sources with the old regime's.
+      s80ttaCap: null,
+      s80ttbCap: null,
     },
   },
 };
@@ -332,6 +359,26 @@ export interface Deductions {
   s80ccd2?: Paise;
   /** The employer is a central or state government, which raises the old regime's cap. */
   s80ccd2Government?: boolean;
+  /**
+   * DECA-1 · How much of `gross` is salary, when the app knows (from the
+   * member's AIS). The standard deduction is capped at it rather than at the
+   * whole gross: interest and dividends get none. Omitted or null treats the
+   * whole gross as salary, as before.
+   */
+  salary?: Paise | null;
+  /**
+   * DECA-1 · Savings-bank interest, and interest on other bank, post-office
+   * and co-operative deposits, already inside `gross` — the base for 80TTA
+   * and 80TTB under the old regime. Omitted is none known.
+   */
+  interestSavings?: Paise;
+  interestDeposits?: Paise;
+  /**
+   * DECA-1 · Whether the person is a senior citizen in the year: true takes
+   * 80TTB, false or null (not known) 80TTA. Null never takes 80TTB, so an
+   * unknown age can only understate the deduction, never overstate it.
+   */
+  senior?: boolean | null;
 }
 
 export interface HraInput {
@@ -377,6 +424,10 @@ export interface RegimeEstimate {
   chapterViA: Paise;
   /** ENG-7 · Employer NPS, s80CCD(2), after the cap. Allowed under both regimes. */
   employerNps: Paise;
+  /** DECA-1 · 80TTA or 80TTB, after the cap; zero under the new regime. */
+  interestDeduction: Paise;
+  /** Which of the two `interestDeduction` is, or null when it is zero. */
+  interestSection: "80TTA" | "80TTB" | null;
   taxable: Paise;
   taxBeforeRebate: Paise;
   rebate: Paise;
@@ -489,11 +540,43 @@ export function estimateUnder(
    * taxed on ₹19,25,000 — ₹15,600 understated — and every card printed
    * "Standard deduction −₹75,000" against a gross of ₹0. The declared gross is
    * the only salary this knows of, so the deduction is capped at it.
+   *
+   * DECA-1 · Unless the caller knows how much of gross is salary (the AIS
+   * reports it): then it is capped at that. "₹75,000 [₹50,000 old] or the
+   * amount of salary, whichever is lower" — the cap [verified 21-11-2026,
+   * incometax.gov.in "FAQs on New Tax vs Old Tax Regime", FAQ 5]; the
+   * amounts [verified 21-11-2026, incometaxindia.gov.in "Deductions from
+   * Salary": ₹50,000, ₹75,000 under 115BAC(1A)] for FY 2025-26; FY 2026-27
+   * unchanged per Budget 2026 (above), not re-read against the 2025 Act
+   * [unverified]. Without this an interest-only retiree's ₹12,50,000 took
+   * ₹75,000 off and showed ₹0 under the new regime, against ₹52,000.
    */
-  const standardDeduction = Math.min(rules.standardDeduction, Math.max(0, gross)) as Paise;
+  const salaryPart = deductions.salary === undefined || deductions.salary === null
+    ? gross
+    : Math.min(gross, deductions.salary);
+  const standardDeduction = Math.min(rules.standardDeduction, Math.max(0, salaryPart)) as Paise;
+
+  /*
+   * DECA-1 · 80TTB for a known senior citizen; otherwise 80TTA, on savings
+   * interest alone. Old regime only (the caps are null under the new).
+   */
+  let interestDeduction = 0;
+  let interestSection: "80TTA" | "80TTB" | null = null;
+  const savingsInterest = Math.max(0, deductions.interestSavings ?? 0);
+  const depositInterest = Math.max(0, deductions.interestDeposits ?? 0);
+  if (rules.allowsDeductions) {
+    if (deductions.senior === true && rules.s80ttbCap !== null) {
+      interestDeduction = Math.min(savingsInterest + depositInterest, rules.s80ttbCap);
+      if (interestDeduction > 0) interestSection = "80TTB";
+    } else if (deductions.senior !== true && rules.s80ttaCap !== null) {
+      interestDeduction = Math.min(savingsInterest, rules.s80ttaCap);
+      if (interestDeduction > 0) interestSection = "80TTA";
+    }
+  }
 
   const taxable = Math.max(
-    0, grossWithGains - standardDeduction - hraExempt - homeLoanInterest - chapterViA - employerNps,
+    0, grossWithGains - standardDeduction - hraExempt - homeLoanInterest - chapterViA - employerNps
+      - interestDeduction,
   ) as Paise;
 
   const taxBeforeRebate = taxOnSlabs(taxable, rules.slabs);
@@ -629,7 +712,8 @@ export function estimateUnder(
   return {
     regime, gross: grossWithGains,
     standardDeduction,
-    hraExempt, homeLoanInterest, chapterViA, employerNps, taxable,
+    hraExempt, homeLoanInterest, chapterViA, employerNps,
+    interestDeduction: interestDeduction as Paise, interestSection, taxable,
     taxBeforeRebate, rebate, marginalRelief, specialRateTax, surcharge, cess, total,
     totalIncome, basicExemptionAgainstGains: basicExemptionAgainstGains as Paise,
     // WEALTH-10 · Over all the income the total is tax on, special-rate gains

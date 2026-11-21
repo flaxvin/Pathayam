@@ -90,12 +90,12 @@ export async function startTestApp(
   db: DB,
   opts: {
     memberId?: string | null; config?: TestConfigOverrides; fetchImpl?: typeof fetch;
-    resolveTxt?: import("../mail/dkim.ts").TxtResolver;
+    resolveTxt?: import("../mail/dkim.ts").TxtResolver; clock?: () => Date;
   } = {},
 ): Promise<TestApp> {
   const failures: TestApp["failures"] = [];
   const config = testConfig(opts.config);
-  const { router, middleware } = buildApp({ db, config, fetchImpl: opts.fetchImpl, resolveTxt: opts.resolveTxt });
+  const { router, middleware } = buildApp({ db, config, fetchImpl: opts.fetchImpl, resolveTxt: opts.resolveTxt, clock: opts.clock });
 
   const server = createHttpServer({
     router,

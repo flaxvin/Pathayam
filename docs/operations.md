@@ -405,8 +405,10 @@ durable table. `src/ops/coverage.test.ts` asserts that every durable table is
 included in that comparison.
 
 - The result appears on the **health page**, which can also take a backup or
-  run a verification on demand. A manual backup prunes to the same 14 the job
-  keeps. On the demo (`DEMO_MODE`) both buttons are refused: every visitor is
+  run a verification on demand. A manual backup prunes as the job does, and is
+  not taken within ten minutes of the newest backup: the notice says when that
+  one was taken and when another can be, so repeated presses neither push out
+  earlier days nor pile up copies. On the demo (`DEMO_MODE`) both buttons are refused: every visitor is
   signed in, and each is a full-database copy on a disk the reset never clears.
 - A failure fires `BACKUP_WEBHOOK_URL`.
 - A success pings `HEARTBEAT_URL`. Every other alert originates from the

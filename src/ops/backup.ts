@@ -230,6 +230,30 @@ export function listBackups(backupDir: string): { path: string; bytes: number; m
   }
 }
 
+/**
+ * Weekly 18-11 #4 · "Back up now" waits ten minutes after the newest backup,
+ * scheduled or manual. Each press was a full copy: on self-host fourteen
+ * presses pushed out every earlier day (keep newest 14), and on a hosted plan
+ * every press inside two days was kept. A copy minutes old already holds what
+ * a new one would.
+ */
+export const MANUAL_BACKUP_GAP_MS = 10 * 60 * 1000;
+
+/** Why a manual backup is not taken now, in plain words, or null when it may be. */
+export function manualBackupTooSoon(backupDir: string, now = new Date()): string | null {
+  const newest = listBackups(backupDir)[0];
+  if (!newest) return null;
+  const age = now.getTime() - newest.mtime.getTime();
+  // A copy stamped in the future (a clock moved back) does not block for ever.
+  if (age < 0 || age >= MANUAL_BACKUP_GAP_MS) return null;
+  const minutes = Math.floor(age / 60_000);
+  const ago = minutes < 1 ? "less than a minute ago" : minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+  const at = nowIST(newest.mtime).slice(11, 16);
+  const next = nowIST(new Date(newest.mtime.getTime() + MANUAL_BACKUP_GAP_MS)).slice(11, 16);
+  return `No new backup taken: the last one was taken ${ago}, at ${at}, and already holds everything. ` +
+    `Another can be taken from ${next}.`;
+}
+
 export function pruneBackups(backupDir: string, keep = 14): number {
   const backups = listBackups(backupDir);
   let removed = 0;

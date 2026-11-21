@@ -165,7 +165,7 @@ import {
   renderHealth, overallState, type HealthGroup,
 } from "./web/pages/health.ts";
 import {
-  createBackup, pruneForRetention, verifyRestore, listBackups, lastJobRun, recordJobRun,
+  createBackup, pruneForRetention, manualBackupTooSoon, verifyRestore, listBackups, lastJobRun, recordJobRun,
   pingHeartbeat,
 } from "./ops/backup.ts";
 import {
@@ -187,7 +187,7 @@ import {
   derivedWorth, accountRows, cardsDue, overviewData, portfolioData, taxPageModel, scheduleInScope,
 } from "./web/screen-data.ts";
 import {
-  queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
+  queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense, incomeAndSpending,
   outstandingReimbursements, capitalGainsByYear, loanInterestByFinancialYear, categoryTrend,
   spendingCalendar, spendByTag, rowsToCsv, type GroupBy, type TransactionFilter,
 } from "./domain/reports.ts";
@@ -361,7 +361,7 @@ import {
   units as toUnits, price as toUnitPrice, formatUnits, parseUnitPrice, type MicroRupees,
 } from "./portfolio/holdings.ts";
 import { searchSchemes } from "./portfolio/providers.ts";
-import { refreshPrices, MANUAL_REFRESH } from "./portfolio/refresh.ts";
+import { refreshPrices, MANUAL_REFRESH, manualRefreshTooSoon, DEMO_REFRESH_NOTICE, isinChangeFor } from "./portfolio/refresh.ts";
 import { handleMcp } from "./ai/mcp.ts";
 import { buildTools, MCP_INSTRUCTIONS, writeInstructions } from "./ai/tools.ts";
 import {
@@ -392,6 +392,8 @@ export interface AppDeps {
   fetchImpl?: typeof fetch;
   /** FWD · DNS TXT lookups for DKIM keys; injected so tests need no network. */
   resolveTxt?: TxtResolver;
+  /** Injected so tests can move time (the manual price refresh's five minutes). */
+  clock?: () => Date;
 }
 
 // `/privacy` and `/terms` are public because Google's OAuth reviewer fetches
@@ -7362,7 +7364,8 @@ export function buildApp(deps: AppDeps): {
         tax: config.features.tax,
         insights: spendingInsights(db, todayIST(), 6, viewer(ctx)),
         gains: config.features.assets ? capitalGainsByYear(db, viewer(ctx)) : [],
-        trend: incomeVsExpense(db, period.from, period.to, scope, viewer(ctx)),
+        // DECA-2 · Out is envelope spending, as on the Overview (B78): card swipes count.
+        trend: incomeAndSpending(db, period.from, period.to, scope, viewer(ctx)),
         categorySpend: categorySpend.map((g) => ({ label: g.label, value: g.value })),
         categoryTrends,
         tagSpend: spendByTag(db, period.from, period.to, viewer(ctx)),
@@ -9934,6 +9937,7 @@ export function buildApp(deps: AppDeps): {
         history: priceHistory(db, view.instrument.id, 40),
         today: todayIST(),
         bhavcopy: config.bhavcopyPrices,
+        isinChange: isinChangeFor(db, view.instrument),
       }),
     );
   });
@@ -10144,9 +10148,26 @@ export function buildApp(deps: AppDeps): {
    * pressed the button knows that better than the schedule does. The ceiling
    * exists because the provider does not care who pressed what.
    */
+  /** Weekly 18-11 #5 · When this process last started a manual refresh. */
+  let manualRefreshStartedAt: number | null = null;
   router.post("/portfolio/refresh", async (ctx) => {
     requireAssets();
     const a = auth(ctx);
+
+    /*
+     * Weekly 18-11 #5 · Fifteen presses were thirty AMFI downloads and sixty
+     * calls to free third-party services, and on the demo anybody could loop
+     * it from the demo's address. The demo's button now fetches nothing — the
+     * midnight run (portfolio/nightly.ts) does that — and elsewhere a press
+     * within five minutes of the last one says when it ran instead.
+     */
+    if (config.demoMode) {
+      return { redirect: withNotice("/portfolio", DEMO_REFRESH_NOTICE) };
+    }
+    const now = (deps.clock ?? (() => new Date()))();
+    const tooSoon = manualRefreshTooSoon(db, now, manualRefreshStartedAt);
+    if (tooSoon) return { redirect: withNotice("/portfolio", tooSoon) };
+    manualRefreshStartedAt = now.getTime();
 
     // EXTRA-5 · Bounded: a few seconds a provider, twelve in all, and what
     // was not reached in that time is reported rather than waited for.
@@ -10779,11 +10800,15 @@ export function buildApp(deps: AppDeps): {
    * were twenty files until the six-hourly prune. The demo's job runs them
    * anyway; a visitor has no reason to. And a manual backup now prunes like the
    * scheduled one, so a household pressing the button cannot fill the disk
-   * either.
+   * either — and (weekly 18-11 #4) it waits ten minutes after the newest
+   * backup, so presses can neither push out earlier days nor pile up copies.
    */
   router.post("/health/backup", (ctx) =>
     mutate(ctx, (a) => {
       refuseInDemo(config, "Taking backups");
+      // Weekly 18-11 #4 · Not again within ten minutes of the newest backup.
+      const tooSoon = manualBackupTooSoon(config.backupDir);
+      if (tooSoon) return { redirect: "/health", message: tooSoon };
       const backup = createBackup(db, config.backupDir);
       // WEB-9 · The plan's retention, as the scheduled job prunes. This kept
       // the newest 14 whatever BACKUP_RETENTION_DAYS said, so one press of

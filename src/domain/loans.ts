@@ -2409,7 +2409,11 @@ registerUndoHandler("loan", (db, event, actor) => {
      * mistake — the same charge twice — can be put right from the log.
      */
     if (!("feeTransactionId" in after)) throw tooOld("conversion");
-    if (queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM loan_payments WHERE loan_id = ?`, id)!.n > 0) {
+    // DECA-3 · The fee's own charge row is part of the conversion, not an instalment since.
+    const feeChargeId = (after.feeChargeId ?? null) as string | null;
+    if (queryOne<{ n: number }>(
+      db, `SELECT COUNT(*) AS n FROM loan_payments WHERE loan_id = ? AND id IS NOT ?`, id, feeChargeId,
+    )!.n > 0) {
       throw new UndoRefused(
         "Instalments have been recorded against this plan since. Undo those first, or close the plan.",
       );
@@ -2426,6 +2430,7 @@ registerUndoHandler("loan", (db, event, actor) => {
       execute(db, `DELETE FROM loan_disbursements WHERE id = ?`, draw.id);
       for (const leg of ids) eraseTransaction(db, leg);
     }
+    if (feeChargeId) execute(db, `DELETE FROM loan_payments WHERE id = ?`, feeChargeId);
     eraseTransaction(db, after.feeTransactionId as string | null);
     const moved = after.moved as { month: MonthKey; fromCategoryId: string; toCategoryId: string; amount: Paise } | null;
     if (moved) {

@@ -114,7 +114,7 @@ answer 404 when the viewer may not see the entity
 | `GET` and `POST /portfolio/cas`, `POST /portfolio/cas/confirm` | CAS import: plan, then confirm. |
 | `GET` and `POST /portfolio/safegold`, `GET /portfolio/safegold/review`, `POST /portfolio/safegold/confirm` | SafeGold statement import: plan, then confirm. |
 | `GET /portfolio/holdings.csv`, `/lots.csv`, `/prices.csv` | |
-| `POST /portfolio/refresh` | Refresh prices from the providers. |
+| `POST /portfolio/refresh` | Refresh prices from the providers, at most once every five minutes; on the demo, shows the prices already fetched. |
 
 ## Tax
 

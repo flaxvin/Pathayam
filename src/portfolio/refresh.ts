@@ -120,6 +120,42 @@ export interface RefreshOptions {
  */
 export const MANUAL_REFRESH = { timeoutMs: 4_000, deadlineMs: 12_000, jitterMaxMs: 250 } as const;
 
+/*
+ * Weekly 18-11 #5 · The button fetches at most once every five minutes per
+ * household. A NAV or a closing price does not move in five minutes, and each
+ * press was a round of calls to free services (MFAPI, AMFI's 1.5 MB file,
+ * Frankfurter) that P5's daily ceilings did not cover.
+ */
+export const MANUAL_REFRESH_GAP_MS = 5 * 60 * 1000;
+
+/** What the demo's Refresh button says: it serves what the midnight run fetched. */
+export const DEMO_REFRESH_NOTICE =
+  "On the demo, prices are fetched once a night, at midnight IST, and Refresh shows the latest of those. " +
+  "Run your own copy to refresh them on demand.";
+
+/**
+ * Why a manual refresh is not run now, or null when it may be. The last one
+ * is the later of this process's own record (`startedAt`, which also covers a
+ * refresh still running) and the event log's, which survives a restart.
+ */
+export function manualRefreshTooSoon(db: DB, now: Date, startedAt: number | null): string | null {
+  const logged = queryOne<{ at: string }>(
+    db,
+    `SELECT at FROM events WHERE entity = 'prices' AND action = 'refresh' ORDER BY seq DESC LIMIT 1`,
+  );
+  const loggedAt = logged ? Date.parse(logged.at) : NaN;
+  const last = Math.max(startedAt ?? -Infinity, Number.isFinite(loggedAt) ? loggedAt : -Infinity);
+  if (!Number.isFinite(last)) return null;
+  const age = now.getTime() - last;
+  if (age < 0 || age >= MANUAL_REFRESH_GAP_MS) return null;
+  const minutes = Math.floor(age / 60_000);
+  const ago = minutes < 1 ? "less than a minute ago" : minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+  const next = nowIST(new Date(last + MANUAL_REFRESH_GAP_MS)).slice(11, 16);
+  return `Prices were refreshed ${ago}, at ${nowIST(new Date(last)).slice(11, 16)}, and are shown as that left them. ` +
+    `Refresh fetches at most once every five minutes, so the free price services are not asked again and again; ` +
+    `it can be used again from ${next}.`;
+}
+
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** The time a run has left, and the timeout a request may use within it. */
@@ -338,8 +374,11 @@ async function attempt(
    * PRICES-1 · An instrument set up for Alpha Vantage, with a key configured,
    * still has it when the exchange files could not price it. Not the other
    * way round: the files are the exchange's own close and cost no quota.
+   * PRICES-3 · Not when the files say the ISIN changed: the ticker's price is
+   * the same post-split price the files were not trusted for.
    */
-  if (!result.ok && provider.name === "bhavcopy" && instrument.provider === "alphavantage" &&
+  if (!result.ok && result.reason !== "isin-changed" &&
+      provider.name === "bhavcopy" && instrument.provider === "alphavantage" &&
       opts.alphaVantageKey && instrument.symbol && mayCall("alphavantage") &&
       budget.left() > backoffMs(1)) {
     const fallback = await PROVIDERS.alphavantage!.fetchPrice(instrument.symbol, fetchOpts("alphavantage"));
@@ -419,6 +458,27 @@ export function bhavcopyCanPrice(instrument: Instrument): boolean {
 function pricingProvider(instrument: Instrument, opts: RefreshOptions): Provider | null {
   if (opts.bhavcopy !== false && bhavcopyCanPrice(instrument)) return PROVIDERS.bhavcopy!;
   return providerFor(instrument.provider);
+}
+
+/**
+ * PRICES-3 · The ISIN the exchanges now list this share's symbol under, when
+ * its latest fetch was refused for that reason and the holding still carries
+ * the old ISIN. Gone once the ISIN is updated, the share is pinned to manual
+ * prices, or a later fetch prices it.
+ */
+export function isinChangeFor(
+  db: DB, instrument: Pick<Instrument, "id" | "isin" | "manual_only">,
+): { newIsin: string; detail: string } | null {
+  if (instrument.manual_only) return null;
+  const last = queryOne<{ status: string; detail: string | null }>(
+    db,
+    `SELECT status, detail FROM price_fetches WHERE instrument_id = ? ORDER BY id DESC LIMIT 1`,
+    instrument.id,
+  );
+  if (last?.status !== "isin-changed" || !last.detail) return null;
+  const newIsin = /\bIN[A-Z0-9]{9}[0-9]\b/.exec(last.detail)?.[0];
+  if (!newIsin || newIsin === (instrument.isin ?? "").toUpperCase()) return null;
+  return { newIsin, detail: last.detail };
 }
 
 /** The last date this class was fetched at all. */

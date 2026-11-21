@@ -57,9 +57,11 @@ export interface PriceResult {
 export interface PriceFailure {
   ok: false;
   /** Typed, so a caller can tell "throttled" from "no such symbol". */
-  reason: "not-found" | "throttled" | "unavailable" | "unparseable" | "not-configured";
+  reason: "not-found" | "throttled" | "unavailable" | "unparseable" | "not-configured" | "isin-changed";
   message: string;
   source: ProviderName;
+  /** PRICES-3 · With "isin-changed": the ISIN the exchange now lists the symbol under. */
+  newIsin?: string;
 }
 
 export type PriceOutcome = PriceResult | PriceFailure;

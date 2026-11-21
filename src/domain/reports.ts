@@ -376,6 +376,30 @@ export function incomeVsExpense(
 }
 
 /**
+ * DECA-2 · Reports' "Income and spending": income as `incomeVsExpense` counts
+ * it (money arriving in budget accounts, loans and sale proceeds left out),
+ * against spending as `envelopeSpendByMonth` counts it — the Overview's
+ * "Spent this month" since B78. The cash measure's "Out" never saw a card
+ * swipe (the charge is on a credit account, the payment a transfer), so a
+ * first month showed ₹5.28K out and ₹1.33L "net saved" while ₹43,478.82 had
+ * been spent. Net is what came in less what was spent, so a card payment is
+ * not counted at all: the purchase already was, on the day it was made.
+ */
+export function incomeAndSpending(
+  db: DB, from: IsoDate, to: IsoDate, budgetId?: string, viewerMemberId?: string | null,
+): TrendPoint[] {
+  const income = new Map(incomeVsExpense(db, from, to, budgetId, viewerMemberId)
+    .map((p) => [p.month, p.income]));
+  const spent = new Map(envelopeSpendByMonth(db, from, to, budgetId, viewerMemberId)
+    .map((p) => [p.month, p.spent]));
+  return [...new Set([...income.keys(), ...spent.keys()])].sort().map((month) => {
+    const i = (income.get(month) ?? 0) as Paise;
+    const s = (spent.get(month) ?? 0) as Paise;
+    return { month, income: i, spending: s, net: (i - s) as Paise };
+  });
+}
+
+/**
  * B78 · What the household actually spent in a month.
  *
  * `incomeVsExpense` above measures cash moving through budget accounts, which
@@ -550,7 +574,7 @@ export function loanInterestByFinancialYear(
             COALESCE(NULLIF(a.nickname, ''), a.name) AS loan
        FROM loan_payments p JOIN loans l ON l.id = p.loan_id
        JOIN accounts a ON a.id = l.account_id
-      WHERE p.amount > 0${seen.sql}
+      WHERE p.amount > 0 AND p.kind <> 'charge'${seen.sql}
       ORDER BY p.date`,
     ...seen.params,
   );

@@ -35,7 +35,8 @@ import { getDepositTerms, listMaturities } from "../domain/deposits.ts";
 import { netWorthStatement, netWorthHistory } from "../domain/networth.ts";
 import { listSchedules, projectCashflow, describeCashflow } from "../domain/schedules.ts";
 import { policiesDueBy, policyTaxSuggestion, applyPolicySuggestion } from "../domain/insurance.ts";
-import { aisSummary, applyAisSuggestion } from "../domain/ais.ts";
+import { aisSummary, applyAisSuggestion, aisIncomeSplit, seniorInYear } from "../domain/ais.ts";
+import { getIdentity } from "../import/identity.ts";
 import { envelopeSpendByMonth } from "../domain/reports.ts";
 import { spendingInsights } from "../domain/insights.ts";
 import { cameWithTheCard, cardPaymentsSinceOpening } from "../domain/card-shortfall.ts";
@@ -576,6 +577,21 @@ export function taxPageModel(
   const payments = listTaxPayments(db, memberId, fy);
   const paid = taxPaid(db, memberId, fy);
 
+  // TAX-AIS · The member's own AIS for the year, if imported.
+  const fromAis = aisSummary(db, memberId, fy);
+  // DECA-1 · With an AIS, the saved gross is split into salary and the AIS's
+  // interest and dividends: the standard deduction is capped at the salary,
+  // and 80TTA/80TTB (old regime) are taken on the interest. Age comes from
+  // the date of birth saved in Settings; without one, 80TTA only.
+  const aisSplit = fromAis ? aisIncomeSplit(gross, fromAis) : null;
+  const senior = aisSplit ? seniorInYear(getIdentity(db, memberId)?.dob, fy) : null;
+  const fromAisDeductions = aisSplit
+    ? {
+        salary: aisSplit.salary, interestSavings: aisSplit.interestSavings,
+        interestDeposits: aisSplit.interestDeposits, senior,
+      }
+    : {};
+
   let estimate = null;
   let advance: AdvanceInstalment[] = [];
   let settlement = null;
@@ -583,7 +599,7 @@ export function taxPageModel(
   // is a debt-fund gain was told to "enter a gross income" and shown nothing.
   if ((gross > 0 || (gains?.addToSlabIncome ?? 0) > 0 || (gains?.specialRateTax ?? 0) > 0)
       && !staleRatesWarning(fy) && !gainsRefusal && !slabsRefusal) {
-    estimate = estimateTax(fy, gross, { ...stored, s24b }, gains);
+    estimate = estimateTax(fy, gross, { ...stored, s24b, ...fromAisDeductions }, gains);
     settlement = { old: settle(estimate.old, paid), new: settle(estimate.new, paid) };
     // TAX-3 · Section 208 tests the year's tax after TDS, not before.
     const liability = Math.max(
@@ -592,9 +608,7 @@ export function taxPageModel(
     advance = advanceTaxSchedule(fy, liability, payments.filter((p) => p.kind === "advance"));
   }
 
-  // TAX-AIS · The member's own AIS for the year, if imported; offered into the
-  // form only when asked, and saved only when the form is.
-  const fromAis = aisSummary(db, memberId, fy);
+  // TAX-AIS · Offered into the form only when asked, and saved only when the form is.
   const aisApplied = applyAis && fromAis !== null;
   const offered = aisApplied ? applyAisSuggestion({ gross, tds: paid.tds }, fromAis) : null;
 
@@ -602,6 +616,7 @@ export function taxPageModel(
     fy, gross, ledgerIncome, ledgerIncomeAccounts, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies, harvest,
     applyPolicies: apply,
     fromAis, applyAis: aisApplied,
+    aisSplit: aisSplit ? { salary: aisSplit.salary, other: aisSplit.other, senior } : null,
     formGross: offered?.gross ?? gross,
     formTds: offered?.tds ?? paid.tds,
     deductions: apply ? applyPolicySuggestion(stored, fromPolicies) : stored,

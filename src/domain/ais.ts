@@ -272,3 +272,68 @@ export function applyAisSuggestion(
     tds: Math.max(typed.tds, s.tdsTotal) as Paise,
   };
 }
+
+export interface AisIncomeSplit {
+  /** The part of gross treated as salary: what the standard deduction is capped at. */
+  salary: Paise;
+  /** The rest: the AIS's interest and dividends, as far as gross includes them. */
+  other: Paise;
+  /** Of `other`, savings-bank interest, and other deposit interest (80TTA/80TTB base). */
+  interestSavings: Paise;
+  interestDeposits: Paise;
+}
+
+/**
+ * DECA-1 · How much of a gross income is salary, given the member's AIS.
+ *
+ * "Use these figures" raises gross to salary + interest + dividends, and the
+ * estimate used to treat all of it as salary, giving the standard deduction
+ * against interest. Nothing new is stored: the split is worked out from the
+ * saved gross and the AIS each time.
+ *
+ *   · Salary is at least the AIS's salary, and is whatever of gross is left
+ *     over the AIS's interest and dividends — a gross typed above the AIS's
+ *     figures is income the AIS does not know of, taken to be salary as it
+ *     always was.
+ *   · The rest is the AIS's interest and dividends. Where gross holds only part
+ *     of them, it is placed against dividends and "other" interest first, then
+ *     deposits, then savings — the order that never overstates 80TTA/80TTB.
+ */
+export function aisIncomeSplit(gross: Paise, s: AisSummary): AisIncomeSplit {
+  const g = Math.max(0, gross);
+  const nonSalary = s.interestSavings + s.interestDeposit + s.interestOther + s.dividends;
+  const salary = Math.min(g, Math.max(s.salary, g - nonSalary));
+  let left = g - salary;
+  const take = (amount: number): number => {
+    const used = Math.min(left, Math.max(0, amount));
+    left -= used;
+    return used;
+  };
+  take(s.dividends);
+  take(s.interestOther);
+  const interestDeposits = take(s.interestDeposit);
+  const interestSavings = take(s.interestSavings);
+  return {
+    salary: salary as Paise,
+    other: (g - salary) as Paise,
+    interestSavings: interestSavings as Paise,
+    interestDeposits: interestDeposits as Paise,
+  };
+}
+
+/**
+ * DECA-1 · Whether someone born on `dob` (DDMMYYYY, as Settings keeps it for
+ * statement passwords) is a senior citizen in financial year `fy`: 60 or over
+ * at any time during the year [verified 21-11-2026, incometax.gov.in "Senior
+ * Citizens and Super Senior Citizens for AY 2026-2027"], so 60 by 31 March of
+ * its last day. Null when no date of birth is saved. The general rule that an
+ * age is attained the day before the birthday would also count somebody born
+ * on 1 April; this does not, which can only understate the deduction.
+ * Residence is assumed, as elsewhere in the estimate.
+ */
+export function seniorInYear(dob: string | null | undefined, fy: number): boolean | null {
+  const digits = (dob ?? "").replace(/\D/g, "");
+  if (digits.length !== 8) return null;
+  const born = `${digits.slice(4, 8)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}`;
+  return born <= `${fy + 1 - 60}-03-31`;
+}

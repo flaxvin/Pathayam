@@ -1473,12 +1473,21 @@ ticker you would search for on NSE, such as <code>RELIANCE</code> or
     one NSE does not list is looked up in BSE's file.</li>
   <li><strong>Matched by ISIN or symbol, never by name</strong>, so two companies with
     similar names cannot be confused.</li>
+  <li><strong>A new ISIN stops the price.</strong> If the exchanges list your share's
+    symbol under a different ISIN, which usually follows a split or another change in
+    face value, its price
+    is not updated and the holding page says so. Check the units, then put in the
+    new ISIN.</li>
   <li><strong>Nothing about what you hold is sent.</strong> The server downloads the
     day's whole file, the same one for everybody, and looks your holdings up in it.
     One download per exchange per day prices every holding in the household.</li>
   <li><strong>The day's close, not live prices.</strong> The files come out in the
     evening, so the refresh waits until after 18:00 IST. A share that did not trade
     that day is not in the file and keeps its last price, with that price's date.</li>
+  <li><strong>Again at midnight.</strong> Every price is refreshed once more at 00:00 IST,
+    when the day's fund NAVs and both exchanges' files are out. <em>Refresh prices</em>
+    fetches at most once every five minutes; on the demo it fetches nothing and shows
+    what the midnight run fetched.</li>
 </ul>
 <div class="note"><b>Foreign shares are different.</b> The exchanges' files cover
 Indian listings only, so a share bought in dollars still needs an Alpha Vantage key
