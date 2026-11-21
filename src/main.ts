@@ -25,9 +25,10 @@ import { pruneIdempotencyKeys } from "./core/idempotency.ts";
 import { pruneExpiredSessions, pruneAuthAttempts } from "./auth/sessions.ts";
 import { purgeDeleted } from "./domain/transactions.ts";
 import { purgeForwarded } from "./forwarding/held.ts";
-import { runBackupJob } from "./ops/backup.ts";
+import { runBackupJob, recordJobRun } from "./ops/backup.ts";
 import { recordRequestFailure, pruneRequestFailures } from "./ops/errors.ts";
 import { refreshPrices } from "./portfolio/refresh.ts";
+import { everyIstMidnight, nightlyPriceRefresh } from "./portfolio/nightly.ts";
 
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 } as const;
 
@@ -247,6 +248,28 @@ function main(): void {
   const housekeepingLead = setTimeout(housekeepingTick, 60 * 1000);
   housekeepingLead.unref();
 
+  // Weekly 18-11 #5 · Every price, every night at 00:00 IST, on every
+  // instance including the demo (where the Refresh button only shows what
+  // this fetched). Same ceilings as any refresh; nothing with assets off.
+  const nightly = everyIstMidnight(() => {
+    void nightlyPriceRefresh(db, config)
+      .then((result) => {
+        if (!result) return;
+        recordJobRun(db, "price-refresh", result.failed > 0 ? "failed" : "ok",
+          `${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped`);
+        log({
+          level: result.failed > 0 ? "warn" : "info",
+          msg: "nightly price refresh",
+          updated: result.updated,
+          failed: result.failed,
+          skipped: result.skipped,
+        });
+      })
+      .catch((err) => {
+        log({ level: "error", msg: "nightly price refresh threw", error: String(err) });
+      });
+  });
+
   server.listen(config.port, config.host, () => {
     log({
       level: "info",
@@ -267,6 +290,7 @@ function main(): void {
     process.on(signal, () => {
       log({ level: "info", msg: "shutting down", signal });
       certificates?.stop();
+      nightly.stop();
       void httpsFrontend?.close();
       server.close(() => {
         db.close();

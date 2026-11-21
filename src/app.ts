@@ -361,7 +361,7 @@ import {
   units as toUnits, price as toUnitPrice, formatUnits, parseUnitPrice, type MicroRupees,
 } from "./portfolio/holdings.ts";
 import { searchSchemes } from "./portfolio/providers.ts";
-import { refreshPrices, MANUAL_REFRESH } from "./portfolio/refresh.ts";
+import { refreshPrices, MANUAL_REFRESH, manualRefreshTooSoon, DEMO_REFRESH_NOTICE } from "./portfolio/refresh.ts";
 import { handleMcp } from "./ai/mcp.ts";
 import { buildTools, MCP_INSTRUCTIONS, writeInstructions } from "./ai/tools.ts";
 import {
@@ -392,6 +392,8 @@ export interface AppDeps {
   fetchImpl?: typeof fetch;
   /** FWD · DNS TXT lookups for DKIM keys; injected so tests need no network. */
   resolveTxt?: TxtResolver;
+  /** Injected so tests can move time (the manual price refresh's five minutes). */
+  clock?: () => Date;
 }
 
 // `/privacy` and `/terms` are public because Google's OAuth reviewer fetches
@@ -10144,9 +10146,26 @@ export function buildApp(deps: AppDeps): {
    * pressed the button knows that better than the schedule does. The ceiling
    * exists because the provider does not care who pressed what.
    */
+  /** Weekly 18-11 #5 · When this process last started a manual refresh. */
+  let manualRefreshStartedAt: number | null = null;
   router.post("/portfolio/refresh", async (ctx) => {
     requireAssets();
     const a = auth(ctx);
+
+    /*
+     * Weekly 18-11 #5 · Fifteen presses were thirty AMFI downloads and sixty
+     * calls to free third-party services, and on the demo anybody could loop
+     * it from the demo's address. The demo's button now fetches nothing — the
+     * midnight run (portfolio/nightly.ts) does that — and elsewhere a press
+     * within five minutes of the last one says when it ran instead.
+     */
+    if (config.demoMode) {
+      return { redirect: withNotice("/portfolio", DEMO_REFRESH_NOTICE) };
+    }
+    const now = (deps.clock ?? (() => new Date()))();
+    const tooSoon = manualRefreshTooSoon(db, now, manualRefreshStartedAt);
+    if (tooSoon) return { redirect: withNotice("/portfolio", tooSoon) };
+    manualRefreshStartedAt = now.getTime();
 
     // EXTRA-5 · Bounded: a few seconds a provider, twelve in all, and what
     // was not reached in that time is reported rather than waited for.

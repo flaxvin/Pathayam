@@ -1479,6 +1479,10 @@ ticker you would search for on NSE, such as <code>RELIANCE</code> or
   <li><strong>The day's close, not live prices.</strong> The files come out in the
     evening, so the refresh waits until after 18:00 IST. A share that did not trade
     that day is not in the file and keeps its last price, with that price's date.</li>
+  <li><strong>Again at midnight.</strong> Every price is refreshed once more at 00:00 IST,
+    when the day's fund NAVs and both exchanges' files are out. <em>Refresh prices</em>
+    fetches at most once every five minutes; on the demo it fetches nothing and shows
+    what the midnight run fetched.</li>
 </ul>
 <div class="note"><b>Foreign shares are different.</b> The exchanges' files cover
 Indian listings only, so a share bought in dollars still needs an Alpha Vantage key

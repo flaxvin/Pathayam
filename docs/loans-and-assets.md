@@ -446,6 +446,22 @@ AMFI fallback is skipped when there is no time left for it, and instruments not
 reached in time keep their cached prices; the notice says how many were
 refreshed, how many failed and how many it ran out of time for.
 
+The button fetches at most once every five minutes per household
+(`MANUAL_REFRESH_GAP_MS`): a press sooner than that fetches nothing and says
+when prices were last refreshed and when it can be used again. The last press
+is read from the event log, so a restart does not reset it. With `DEMO_MODE`
+on, the button fetches nothing at all and says so; the demo's prices come from
+the scheduled runs.
+
+Besides the six-hourly tick, every instance (the demo included) refreshes every
+held price at 00:00 IST each night (`src/portfolio/nightly.ts`), an in-process
+timer like housekeeping. It skips the per-class cadence, since nothing is due
+by those hours at midnight, but not the ceilings: the exchanges' twelve
+downloads a day and each provider's daily cap still hold, and with
+`FEATURE_ASSETS` off it fetches nothing. A process that is not running at
+midnight does not make it up later; the six-hourly tick still runs once it is
+back.
+
 Prices and valuations older than the configured threshold are reported as stale
 on the health page and beside the figures they affect.
 
