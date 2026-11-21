@@ -73,6 +73,13 @@ export interface TaxPageProps {
   /** What the form's gross and TDS boxes show: the saved figures, or the AIS's when applied. */
   formGross?: Paise;
   formTds?: Paise;
+  /**
+   * DECA-1 · With an AIS, how the saved gross was split for the estimate:
+   * salary (what the standard deduction is capped at), the AIS's interest and
+   * dividends, and whether the member is a senior citizen (null: no date of
+   * birth saved).
+   */
+  aisSplit?: { salary: Paise; other: Paise; senior: boolean | null } | null;
   /** Why the last upload was not imported. */
   aisError?: string | null;
   /** Why uploading is off here (the demo), or null. */
@@ -127,6 +134,7 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
             ${e.homeLoanInterest > 0 ? row("Home loan interest, s24(b)", -e.homeLoanInterest as Paise, { muted: true }) : html``}
             ${e.chapterViA > 0 ? row("80C, 80D and other", -e.chapterViA as Paise, { muted: true }) : html``}
             ${e.employerNps > 0 ? row("Employer NPS, 80CCD(2)", -e.employerNps as Paise, { muted: true }) : html``}
+            ${e.interestDeduction > 0 ? row(e.interestSection === "80TTB" ? "Deposit interest, 80TTB" : "Savings interest, 80TTA", -e.interestDeduction as Paise, { muted: true }) : html``}
             ${row("Taxable income", e.taxable, { strong: true })}
             ${row("Tax on slabs", e.taxBeforeRebate)}
             ${e.rebate > 0 ? row("Section 87A rebate", -e.rebate as Paise, { muted: true }) : html``}
@@ -142,6 +150,40 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
         ? html`<p class="field-hint">The new regime allows no 80C, 80D, HRA or interest on a home you live in. Anything entered for those is ignored here, by design; employer NPS is not.</p>`
         : html``}
     </div>
+  `;
+}
+
+/**
+ * DECA-1 · What the estimate took from the AIS: the standard deduction capped
+ * at its salary, and 80TTA or 80TTB under the old regime — saying when the
+ * age was not known.
+ */
+function aisSplitNote(
+  split: { salary: Paise; other: Paise; senior: boolean | null }, old: RegimeEstimate,
+): SafeHtml {
+  const interestLine = old.interestSection === "80TTB"
+    ? html` Under the old regime, ${formatPaise(old.interestDeduction)} of bank and post-office
+        deposit interest is deducted under 80TTB (up to ₹50,000), as the date of birth saved
+        in Settings makes you 60 or over this year.`
+    : old.interestSection === "80TTA"
+      ? split.senior === null
+        ? html` Under the old regime, ${formatPaise(old.interestDeduction)} of savings-bank
+            interest is deducted under 80TTA (up to ₹10,000). No date of birth is saved in
+            Settings, so the app cannot tell whether you are 60 or over; if you are, 80TTB
+            allows up to ₹50,000 on all deposit interest instead — save your date of birth to
+            have it used.`
+        : html` Under the old regime, ${formatPaise(old.interestDeduction)} of savings-bank
+            interest is deducted under 80TTA (up to ₹10,000).`
+      : html``;
+  return html`
+    <p class="field-hint" data-testid="ais-split">
+      ${split.other > 0
+        ? html`From your AIS, ${formatPaise(split.salary)} of your gross income is salary and
+            ${formatPaise(split.other)} is the interest and dividends it reports. The standard
+            deduction is for salary only, so it is ${split.salary > 0 ? html`capped at that salary` : html`not given`}.`
+        : html`Your AIS's interest and dividends are not inside your gross income, so all of it is taken as salary.`}${interestLine}
+      The new regime allows neither 80TTA nor 80TTB.
+    </p>
   `;
 }
 
@@ -210,6 +252,7 @@ export function renderTax(p: TaxPageProps): SafeHtml {
                   numbers.
                 `}
           </p>
+          ${p.aisSplit ? aisSplitNote(p.aisSplit, p.estimate.old) : html``}
         `
       : html`<p class="muted">Enter a gross income to see an estimate.</p>`}
 
@@ -300,7 +343,9 @@ export function renderTax(p: TaxPageProps): SafeHtml {
         <label for="other">Other deductions</label>
         <input id="other" name="other" inputmode="decimal" value="${(d.other / 100).toFixed(2)}">
         <p class="field-hint">
-          Anything else you claim — 80CCD(1B), 80TTA, 80G. Entered as one figure
+          Anything else you claim — 80CCD(1B), 80G, and 80TTA or 80TTB if you
+          have not imported your AIS (with one, they are worked out from its
+          interest: do not add them here too). Entered as one figure
           because this app does not know which is which. Home loan interest is
           not one of them any more: it has its own line below.
         </p>
