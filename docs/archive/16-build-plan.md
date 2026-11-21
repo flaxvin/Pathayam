@@ -48,7 +48,7 @@ budget still working exactly as it does today.
 **Two things found on the way**, neither of them in the estimate:
 
 - Migration 0026 rebuilds `accounts`, and a table rebuild behaves differently on
-  a database with rows in it. It passed 851 tests and failed on the first real
+  a database with rows in it. It passed the whole suite and failed on the first real
   database it met, because `DROP TABLE` on a parent leaves SQLite's deferred
   violation counter high and `PRAGMA foreign_key_check` cannot see it. The
   runner now turns `foreign_keys` off around a migration marked `rebuildsTable`
@@ -291,7 +291,7 @@ was supposed to matter.
 **Two defects were found by the demo rather than by a test**: calling it even gives
 income to whichever side is *released*, which is not always the side the envelope
 sits in — reading it off the envelope left the other budget short in every month
-from then on. And migration 0026 passed 851 tests and failed on the first real
+from then on. And migration 0026 passed the whole suite and failed on the first real
 database it met, because a table rebuild behaves differently when rows exist.
 
 The pattern is worth naming: **the tests protect the arithmetic, and using it
@@ -342,5 +342,5 @@ chair:
 | **And the write side stayed open after the read side closed** | Posting another member's envelope id by hand still worked, which also confirmed the envelope existed (R6.ac). |
 
 The pattern in all four: **a test written from one person's chair cannot see a
-privacy bug.** The suite had a thousand tests and not one of them signed in as
+privacy bug.** Not one test in the suite signed in as
 somebody else and looked.
