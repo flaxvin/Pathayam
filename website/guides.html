@@ -416,7 +416,8 @@ asked to clear it on the card <em>and</em> pay it monthly. The processing fee an
 purchase, so they need an envelope. Each instalment also posts 18% GST on that
 instalment's interest as its own card charge, the way the statement shows it, and
 the plan's envelope asks for it each month. The loan screen shows what the plan
-costs in interest, GST and fees.</p>
+costs in interest, GST and fees, the processing fee included, so its total cost of
+borrowing matches what the conversion told you.</p>
 <p>Two details make plans easier to manage. <strong>Name it</strong>: the conversion form
 offers the payee as a suffix, so you get &ldquo;HDFC EMI — Croma TV&rdquo; rather than a
 list of plans with identical names. And whatever the card's
@@ -740,6 +741,8 @@ shows what it would change among the transactions you can see, before you save i
 <p>A condition can also <em>match a pattern</em>, a regular expression. Patterns that
 could take minutes to give up on a long description, such as <code>(a+)+</code>, are
 refused when you save or try the rule, with the reason and a safer way to write it.
+So is a pattern with so many optional parts (<code>?</code> or <code>{0,20}</code>, many
+times over) that together they would do the same.
 A pattern can be up to 200 characters, and is tested against the first 500 characters
 of a description.</p>
 <h3>Why it learns from filing rather than importing</h3>
@@ -960,7 +963,8 @@ because the issuer bills it separately.</p>
 moment the loan exists, so you don't have to set one. A rate change or a
 new disbursement moves the target with it, and closing the loan releases it.</p>
 <h3>Settling early</h3>
-<p>When the loan is paid off, the page says so and offers to close it; a loan that
+<p>When the loan is paid off, the page says so and offers to close it (a loan with
+nothing drawn yet is not taken for paid off); a loan that
 still owes money is settled rather than closed. You can also settle before term: enter what you are paying and the <strong>foreclosure charge</strong>
 the lender applies, along with the account it comes out of and the
 envelope it spends from. Most lenders charge for early repayment (a percentage on a
@@ -1035,7 +1039,7 @@ loan landing in your savings arrives as money you can assign.</p>
               </figure>
               <figure class="frame">
                 <picture>
-                  <source media="(max-width: 44rem)" srcset="img/charts_loan-mobile.webp" width="48" height="48">
+                  <source media="(max-width: 44rem)" srcset="img/charts_loan-mobile.webp" width="708" height="264">
                   <img src="img/charts_loan.webp" width="2148" height="804" loading="lazy" alt="A loan's balance falling to zero over its schedule.">
                 </picture>
                 <figcaption>A loan's balance falling to zero over its schedule.</figcaption>
@@ -1090,7 +1094,10 @@ only bank accounts can understate a card-heavy household's spending by twenty ti
 library is used, and none of your figures leave the machine to be drawn.</p>
 <ul>
   <li><strong>Income against spending</strong> by month, with a net-saved line, so
-    you can see whether the gap is widening or it was one good month.</li>
+    you can see whether the gap is widening or it was one good month. Spending is
+    what left your envelopes, the same as <em>Spent this month</em> on the Overview: a
+    card purchase counts on the day you made it, and paying the card off is not
+    counted again.</li>
   <li><strong>Category trends</strong> over time, which show patterns such as groceries
     drifting up ₹500 a month for a year.</li>
   <li><strong>Loan interest by financial year</strong>, April to March: the interest
@@ -1106,13 +1113,13 @@ library is used, and none of your figures leave the machine to be drawn.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/reports-mobile.webp" width="840" height="1800">
-                  <img src="img/reports.webp" width="2800" height="10786" loading="lazy" alt="Reports: income against spending, by month.">
+                  <img src="img/reports.webp" width="2800" height="11064" loading="lazy" alt="Reports: income against spending, by month.">
                 </picture>
                 <figcaption>Reports: income against spending, by month.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
-                  <source media="(max-width: 44rem)" srcset="img/charts_reports-mobile.webp" width="48" height="48">
+                  <source media="(max-width: 44rem)" srcset="img/charts_reports-mobile.webp" width="708" height="324">
                   <img src="img/charts_reports.webp" width="2148" height="864" loading="lazy" alt="Grouped bars with a net-saved line.">
                 </picture>
                 <figcaption>Grouped bars with a net-saved line.</figcaption>
@@ -1223,7 +1230,7 @@ a schedule spends from takes the schedule along to the one that remains.</p>
               </figure>
               <figure class="frame">
                 <picture>
-                  <source media="(max-width: 44rem)" srcset="img/charts_cashflow-mobile.webp" width="48" height="48">
+                  <source media="(max-width: 44rem)" srcset="img/charts_cashflow-mobile.webp" width="708" height="264">
                   <img src="img/charts_cashflow.webp" width="2148" height="804" loading="lazy" alt="Sixty days of projected balance.">
                 </picture>
                 <figcaption>Sixty days of projected balance.</figcaption>
@@ -1472,7 +1479,9 @@ ticker you would search for on NSE, such as <code>RELIANCE</code> or
   <li><strong>NSE first, then BSE.</strong> A share on both is priced at NSE's close;
     one NSE does not list is looked up in BSE's file.</li>
   <li><strong>Matched by ISIN or symbol, never by name</strong>, so two companies with
-    similar names cannot be confused.</li>
+    similar names cannot be confused. With an ISIN, both files are searched by ISIN
+    before either is searched by symbol, so a share listed only on BSE is never
+    priced as a different company that uses the same ticker on NSE.</li>
   <li><strong>A new ISIN stops the price.</strong> If the exchanges list your share's
     symbol under a different ISIN, which usually follows a split or another change in
     face value, its price
@@ -1540,7 +1549,7 @@ than expected, and the real allocation usually holds more equity than people thi
               </figure>
               <figure class="frame">
                 <picture>
-                  <source media="(max-width: 44rem)" srcset="img/charts_allocation-mobile.webp" width="48" height="48">
+                  <source media="(max-width: 44rem)" srcset="img/charts_allocation-mobile.webp" width="708" height="760">
                   <img src="img/charts_allocation.webp" width="2148" height="400" loading="lazy" alt="The three allocation donuts.">
                 </picture>
                 <figcaption>The three allocation donuts.</figcaption>
@@ -1757,6 +1766,13 @@ page then shows:</p>
 <p>Press <strong>Use these figures</strong> and the form's gross income and TDS are
 raised to at least the AIS's. A figure already higher is left alone, nothing is
 lowered, and nothing is saved until you press Save.</p>
+<p>Once your AIS is in, the estimate knows how much of your gross income is salary.
+The standard deduction is given on that salary only, never on interest or
+dividends. Under the old regime, the AIS's interest is also deducted: up to
+₹50,000 of deposit interest under 80TTB if the date of birth saved in Settings
+makes you 60 or over this year, otherwise up to ₹10,000 of savings interest under
+80TTA. The new regime allows neither. The page shows how it split your income.
+Leave 80TTA and 80TTB out of <em>Other deductions</em>, or they are counted twice.</p>
 <div class="note"><b>Only the figures are kept, and only for you.</b> The file is read
 and thrown away. Each member uploads their own AIS, signed in as themselves; one whose
 PAN is not the PAN saved for you is refused, and nobody else in the household can see
@@ -1966,6 +1982,9 @@ restored, and the app tells you when the check last succeeded.</div>
 and remaining quota, feature flags, error counts, and whether the development bypass
 is present. Every check shows its state, when it last ran, and a plain-language
 reason.</p>
+<p><em>Back up now</em> takes a backup on the spot. Within ten minutes of the newest
+backup it takes no new copy and tells you when the last one was taken, since that
+one already holds everything; pressing it again cannot push out earlier days.</p>
 <h3>Restoring</h3>
 <p>Use the restore command rather than copying a file over the database by hand.
 Copying leaves the database's write-ahead journal behind, and the first query then

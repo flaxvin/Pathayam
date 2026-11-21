@@ -250,7 +250,11 @@ than guessed at.
 A credit-card charge can be converted into an instalment plan. The conversion
 creates a loan of type `credit-card-emi` linked to the originating transaction
 and card, dated from the **charge**, with the processing fee recorded against a
-chosen envelope.
+chosen envelope. The fee and its GST are also recorded as the plan's charge
+(`loan_payments.kind = 'charge'`, no principal, no interest), so the plan's
+total cost of borrowing matches the cost the conversion states; outstanding,
+net worth and spending are untouched, since the money is the card charge,
+counted once. Plans converted before this keep the lower total.
 
 Each instalment on a card EMI also posts 18% GST on that instalment's interest
 as its own line (a loan charge and a card charge memoed "GST 18% on EMI
@@ -420,7 +424,10 @@ Both files share the UDiFF header (`TradDt`, `ISIN`, `TckrSymb`, `SctySrs`,
 `FinInstrmId`, `FinInstrmNm`, `ClsPric`, ...), read by name. A holding is
 matched by ISIN first, then by symbol (NSE's ordinary series, EQ, ahead of BE,
 BZ, SM and ST) or BSE scrip code (`FinInstrmId` in BSE's file). NSE's file is
-read first and BSE's when NSE does not list it. When a holding's ISIN is on
+read first and BSE's when NSE does not list it. A holding with an ISIN is
+looked for by ISIN in both files before either is searched by symbol, so a
+BSE-only share whose ticker is another company's on NSE is not priced as that
+company. When a holding's ISIN is on
 neither file but its symbol or code is listed under a different ISIN (PRICES-3:
 usually a split or face-value change), no price is recorded and the holding
 page says the share now trades under the new ISIN and asks the member to check
