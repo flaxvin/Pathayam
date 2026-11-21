@@ -374,8 +374,10 @@ A rule has a stage, conditions, and actions.
 - **Patterns** (`matches`) are checked when a rule is saved or tried
   (`/rules/new`, `/rules/test`): one that does not compile, is over 200
   characters, repeats something that itself repeats (`(a+)+`), repeats a choice
-  whose options can start alike (`(a|ab)+`), or has more than two open-ended
-  repeats is refused with the reason. At match time only the first 500
+  whose options can start alike (`(a|ab)+`), repeats something optional
+  (`(\w?\w){1,20}`), has more than two open-ended repeats, or has so many
+  optional and bounded parts that together they could backtrack for minutes
+  (`\w{0,20}` eight times, `\w?` twenty times) is refused with the reason. At match time only the first 500
   characters of a narration are tested, and a bad pattern stored earlier is
   skipped with a logged warning.
 - **Actions:** `setCategory`, `setPayee`, `setMemo` (set, prepend or append),
@@ -401,7 +403,8 @@ changed again since, which stays as it is and is counted in the notice.
 `reference` (the longest digit run of six or more) and `merchant` from raw
 narration. The merchant is the longest remaining segment after removing the
 rail, the reference, and known noise tokens; a trailing reference, bracketed or
-bare, is stripped.
+bare, is stripped. Only the first 500 characters are read for these, so one
+very long cell cannot hold up an import; the whole narration is still stored.
 
 ## Learning
 

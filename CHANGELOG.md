@@ -7,6 +7,59 @@ public surface: a change that breaks one of them is a major version.
 
 ## Unreleased
 
+- **The tax estimate treats AIS income as the Act does (#33).** With an AIS
+  imported for the year, the saved gross income is split into salary (at least
+  the AIS's salary, and anything typed above the AIS's figures) and the AIS's
+  interest and dividends. The standard deduction is capped at that salary, so
+  interest and dividends no longer get it: an interest-only ₹12,50,000 in
+  2026-27 was shown ₹0 under the new regime and is now ₹52,000. Under the old
+  regime, 80TTB (deposit interest, up to ₹50,000) is taken when the date of
+  birth saved in Settings makes the member 60 or over in the year, and 80TTA
+  (savings interest, up to ₹10,000) otherwise; the page says when no date of
+  birth is saved. The new regime allows neither. Nothing new is stored. A
+  member who also typed 80TTA into "Other deductions" should take it out.
+
+- **Reports count card spending (#33).** "Income and spending" now measures
+  Out as envelope spending, the same figure as the Overview's "Spent this
+  month": a card purchase counts on the day it was made and paying the card
+  is not counted again, so Net saved is no longer overstated. In is
+  unchanged, and the card says what each line counts.
+
+- **A card EMI's processing fee counts in its cost (#33).** The fee and its
+  GST, still charged to the card, are also recorded against the plan as a
+  charge, so the plan's "Total cost of borrowing" matches what the conversion
+  said (₹3,234.82 on a ₹36,000, nine-month plan at 16% with a ₹299 fee, where
+  it showed ₹2,882). Outstanding, net worth and spending are unchanged.
+  Plans converted earlier keep their old total. No migration.
+
+- **Prices every night, and a calmer Refresh button (#33).** Every instance,
+  the demo included, refreshes every held price at 00:00 IST, within the same
+  daily limits as any other refresh, and fetches nothing with
+  `FEATURE_ASSETS` off. *Refresh prices* fetches at most once every five
+  minutes per household, a limit that holds across a restart; a press sooner
+  says when prices were last refreshed. On the demo the button fetches nothing
+  and shows the prices the scheduled runs fetched. A share whose symbol the
+  exchanges now list under a new ISIN, usually after a split, is no longer
+  priced at the post-split close against pre-split units: its holding page
+  asks for the units to be checked and the new ISIN put in.
+
+- **"Back up now" waits ten minutes (#33).** A press within ten minutes of the
+  newest backup takes no new copy and says when the last one was taken and
+  when another can be, so repeated presses neither push out earlier days
+  (self-host) nor pile up copies (hosted plans).
+
+- **Fixes from a fresh review (#32).** A payee rule pattern built from many
+  optional or bounded repeats (`\w{0,20}` eight times) is refused when saved,
+  instead of stalling every import. A CSV with one very long narration no
+  longer holds up the server, and neither does an AIS, CAS or SafeGold PDF
+  with a long run of spaces. A share with an ISIN is looked up by ISIN on
+  every exchange before any is asked for its symbol, so a BSE-only share whose
+  ticker is another company's on NSE is no longer priced as that company. A
+  loan with nothing drawn yet no longer says it is paid off. Prices such as
+  ₹1,108.60 show two decimals rather than four. The AI connector's tax
+  estimate leaves out the tax-free gains list when `FEATURE_ASSETS` is off,
+  as the Tax page does.
+
 - **Tax-free long-term gains left this year.** The Tax page shows, for the
   year in progress, how much of the ₹1,25,000 s112A exemption the member has
   used on long-term listed equity, what is left, and the days to 31 March; and

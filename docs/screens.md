@@ -61,7 +61,7 @@ answer 404 when the viewer may not see the entity
 | Route | Purpose |
 |---|---|
 | `GET /overview` | Runway, due-soon bills, month at a glance, insights. |
-| `GET /reports` | Income vs spend, category trends, tag spend, spending calendar, Sankey, loan interest by financial year, realised gains by financial year. |
+| `GET /reports` | Income vs spend (Out is envelope spending, as Overview's "Spent this month", so card purchases count on the day), category trends, tag spend, spending calendar, Sankey, loan interest by financial year, realised gains by financial year. |
 | `GET /query`, `GET /query.csv` | Filterable, groupable transaction table. Totals cover every matching row. Transfers and a loan's own ledger rows are left out, so an EMI is counted once, where the money moved; filter on the loan's account to see its rows. |
 | `GET /search` | Everything from one box. |
 | `GET /net-worth`, `GET /net-worth.csv` | Statement groups, the change breakdown (adds up to the total), and dated history. |
@@ -151,7 +151,7 @@ answer 404 when the viewer may not see the entity
 |---|---|
 | `GET /health` | Backups, restore verification, schema version, feature flags, stale inputs, error counts. |
 | `GET /healthz` | Machine-readable; the container health check. |
-| `POST /health/backup`, `POST /health/verify` | Run either by hand. Both refused on the demo. |
+| `POST /health/backup`, `POST /health/verify` | Run either by hand. A backup is not taken within ten minutes of the newest one. Both refused on the demo. |
 | `POST /net-worth/snapshot` | Take a net-worth snapshot. |
 | `GET /export.json`, `GET /export.csv` | Complete export, excluding secrets. |
 | `GET /signin`, `POST /signout` | |

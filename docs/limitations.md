@@ -167,6 +167,35 @@ March 2022). What is not modelled:
 - **The demo refuses the upload**, because an AIS is a whole tax year of
   somebody's figures and the demo is public.
 
+**With an AIS, the estimate knows which income is salary (DECA-1).** The saved
+gross is split each time the page is drawn, and nothing new is stored: salary
+is at least the AIS's salary, plus anything typed above the AIS's figures
+(income the AIS does not know of, taken as salary as before); the rest is the
+AIS's interest and dividends. The standard deduction is "₹75,000 (₹50,000
+old regime) or the amount of salary, whichever is lower", so it is capped at
+that salary and interest and dividends get none. Under the old regime the
+AIS's interest takes 80TTB (bank, post-office and co-operative deposit
+interest, savings and fixed, up to ₹50,000) when the date of birth saved under
+statement passwords makes the member 60 or over at any time in the year, and
+80TTA (savings-bank interest only, up to ₹10,000) otherwise; with no date of
+birth saved it takes 80TTA and says so. The new regime allows neither. Limits
+of this:
+
+- **Without an AIS** the whole gross is still taken as salary, and 80TTA or
+  80TTB belong in "Other deductions".
+- **Counted twice** if a member has an AIS *and* typed 80TTA into "Other
+  deductions": the stored figure cannot say what it holds, so the hint beside
+  it asks for it to be taken out.
+- **While "Use these figures" is pending**, the estimate is still on the saved
+  gross; the split applies once the form is saved.
+- **Residence is assumed**, as elsewhere in the estimate (80TTB is for a
+  resident senior citizen). Somebody born on 1 April is not counted as 60 in
+  the year before, which can only understate the deduction.
+- **FY 2026-27** carries the same limits. The ₹50,000 senior-citizen deduction
+  under the Income-tax Act, 2025 (s153(1)(b), normal regime only) was checked
+  on 21-11-2026; the ₹10,000 savings-interest deduction's place in that Act
+  could not be read and is taken as unchanged.
+
 **Advance tax is measured against what was paid (TAX-3).** Where the year's
 tax under the lower regime, less TDS, is ₹10,000 or more, the four instalments
 (15%, 45%, 75% and 100% by 15 June, 15 September, 15 December and 15 March)

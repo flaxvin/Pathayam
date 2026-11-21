@@ -719,7 +719,7 @@ only (out of a token's reach).
 |---|---|---|---|
 | GET | `/months` · `/months/:month/close` | R | Month-close ritual & history. |
 | POST | `/months/:month/close` · `/months/:month/reopen` | W | Close / reopen a month. |
-| GET | `/reports` | R | Income vs spend, trends, loan interest. |
+| GET | `/reports` | R | Income vs spend (spend as envelope spending, card purchases included), trends, loan interest. |
 | GET | `/query` · `/search` | R | Filterable table. |
 | GET | `/query.csv` | R | Query results as CSV. |
 
@@ -733,7 +733,7 @@ only (out of a token's reach).
 | GET | `/activity` | R | Every change ever made, with its undo. `?entity=` narrows to one kind of record; `?source=ai` to what AI connections changed (or a member approved from one). |
 | POST | `/activity/:id/undo` | W | Undo one recorded event (30 days, R37.8). |
 | GET | `/health` | R | Health dashboard (HTML). |
-| POST | `/health/backup` · `/health/verify` | W | Run a backup / verify a restore. |
+| POST | `/health/backup` · `/health/verify` | W | Run a backup (none taken within ten minutes of the newest) / verify a restore. |
 | POST | `/gmail/fetch` | W | Fetch from the connected mailbox now. (`/gmail/disconnect` is session only.) |
 | POST | `/gmail/card-digits` | W | Save a card account's last four to eight digits (`account_id`, `card_digits`), offered after a fetch left its statement locked for want of them. Never echoed; the notice shows the last two. |
 | POST | `/forwarding/retry` | W | Try the member's locked forwarded statements again with the statement details on file; each that opens is imported and deleted. |

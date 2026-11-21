@@ -450,6 +450,28 @@ There is no manual migration step. The app **refuses to start** against a
 database written by a newer build rather than guessing at a schema it does not
 know.
 
+## Price refreshes
+
+With `FEATURE_ASSETS` on, prices are refreshed by three things, all inside the
+running process:
+
+- **The six-hourly housekeeping tick**, which fetches each class only once it
+  is due: once a day each, funds after 23:00 IST, shares after 18:00 and
+  currencies after 18:30.
+- **A run at 00:00 IST every night**, on every instance including the demo,
+  which refreshes every held price. It keeps the same ceilings as any other
+  refresh: twelve downloads per exchange per day and each provider's daily
+  cap. Each run is recorded in `job_runs` as `price-refresh` and logged. A
+  process that is not running at midnight (an auto-stopped machine, say) does
+  not make that night's run up; the six-hourly tick still runs once it is back.
+- **The Refresh prices button**, at most once every five minutes per
+  instance. The limit is read from the event log as well as memory, so a
+  restart does not reset it. With `DEMO_MODE` on, the button fetches nothing
+  and shows the prices the scheduled runs fetched.
+
+With `FEATURE_ASSETS` off none of these makes an outbound request. Details,
+sources and ceilings: [loans-and-assets.md](loans-and-assets.md).
+
 ## Health
 
 `/health` reports the last backup and its verification, the schema version,

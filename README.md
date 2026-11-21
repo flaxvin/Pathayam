@@ -45,9 +45,9 @@ v1.0.0 · 0 runtime dependencies · 77 migrations · 255 routes
   app. UPI narration
   parsing. Reducing-balance and flat loans, rate changes, prepayment
   comparison, EMI conversion (with the 18% GST on each instalment's interest charged as its own card
-  line). CAS portfolio import. Realised gains by financial year. Mutual funds,
+  line, and the processing fee counted in the plan's cost). CAS portfolio import. Realised gains by financial year. Mutual funds,
   and Indian shares and ETFs from NSE's and BSE's end-of-day files, priced
-  without any API key.
+  without any API key and refreshed again every night at midnight IST.
 - **Deposits that value themselves.** An FD, RD, PPF or EPF account given its
   terms (principal or instalment, rate, compounding, start and maturity) is
   valued from them through to maturity, and the maturity shows on the account,
@@ -74,7 +74,9 @@ v1.0.0 · 0 runtime dependencies · 77 migrations · 255 routes
   advance-tax instalment is checked against what was paid by its date. Your
   own Annual Information Statement PDF can be uploaded to read its TDS by
   deductor, salary, interest and dividends instead of typing them; only the
-  figures are kept, never the file, and only for the member who uploaded it. FY
+  figures are kept, never the file, and only for the member who uploaded it.
+  With an AIS, the standard deduction is given on its salary alone, and the old
+  regime takes 80TTA or 80TTB on its interest. FY
   2024-25 gains are split at 23-07-2024, and listed bonds held over a year
   are taxed at 12.5%. Slabs are data keyed by financial year, so a year the
   app does not have rates for is refused rather than computed with last year's.
@@ -256,7 +258,7 @@ function and asserts (1) and (2) after each month. Details:
 | **Hold** | `/hold` | Keep part of this month’s Ready to Assign for next month. This is how you move to spending last month’s income. |
 | **Review** | `/review` | Everything awaiting a decision: imports, suspected duplicates, uncategorised (filed inline), overspent, unfunded cards, proposed rules, and money you're owed. |
 | **Import** | `/import` | CSV paste / statement-PDF upload with password hints; saved mappings; YNAB and Actual Budget exports. |
-| **Reports** | `/reports` | Income vs. spend, category trends, loan interest by FY, realised gains by FY split by holding period. |
+| **Reports** | `/reports` | Income vs. spend (card purchases counted on the day), category trends, loan interest by FY, realised gains by FY split by holding period. |
 | **Overview** | `/overview` | Runway, due-soon bills, the month at a glance. |
 | **Query** | `/query` | The filterable, groupable table; CSV export. Totals are summed over every matching row, not the page you can see. |
 | **Search** | `/search` | Everything, from one box, reachable with `/` from any screen. |

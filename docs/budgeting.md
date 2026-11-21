@@ -68,6 +68,13 @@ When a transaction is filed against a credit account:
 The money is therefore committed at the moment of spending, not at the moment
 the statement arrives.
 
+Spending is counted the same way wherever it is reported. The Overview's
+"Spent this month" and the Out line of Reports' "Income and spending" are both
+envelope spending (`envelopeSpendByMonth`): a card purchase counts on the day
+it was made, and paying the card off is a transfer, not counted again. In on
+that report is money arriving in budget accounts, with loans paid in and sale
+proceeds left out, and Net is In less Out.
+
 ### Funded and unfunded
 
 ```
