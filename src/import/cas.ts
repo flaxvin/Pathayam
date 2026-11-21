@@ -201,7 +201,7 @@ export function parseCasPdf(bytes: Uint8Array, password: string): CasStatement {
  * household that can only get a text export still has a route in.
  */
 export function parseCasText(text: string): CasStatement {
-  const { schemes: demat, rest } = takeDematHoldings(text.split("\n").map((l) => l.replace(/\s+$/, "")));
+  const { schemes: demat, rest } = takeDematHoldings(text.split("\n").map((l) => l.trimEnd()));
   const lines = rest;
   const schemes: CasScheme[] = [...demat];
   const unparsed: string[] = [];

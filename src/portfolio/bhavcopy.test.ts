@@ -247,6 +247,26 @@ describe("PRICES-1 · pricing a holding", () => {
     assert.ok(r.ok && r.price === 45_500_000);
   });
 
+  test("weekly 18-11 · a BSE-only share whose ticker is another company's on NSE is priced by its ISIN on BSE", async () => {
+    const { impl } = exchanges({
+      [nse("2026-11-16")]: {
+        body: nseZip("2026-11-16", nseCsv("2026-11-16", [
+          row("2026-11-16", "NSE", "777", "INE555B01012", "BSEONLY", "EQ", "SOME OTHER CO LTD", "999.00"),
+        ])),
+        type: "application/zip",
+      },
+      [bse("2026-11-16")]: { body: bseCsv("2026-11-16") },
+    });
+    const r = await priceFromBhavcopy("INE999Z01019", "BSEONLY", { fetchImpl: impl, now: MONDAY_EVENING });
+    assert.ok(r.ok);
+    assert.equal(r.price, 45_500_000, "BSE ONLY LTD's close, not the NSE namesake's 999");
+    assert.equal(r.isin, "INE999Z01019");
+
+    // An ISIN on neither file (it changed, say, after a split) still falls back to the symbol.
+    const moved = await priceFromBhavcopy("INE002A01026", "RELIANCE", { fetchImpl: impl, now: MONDAY_EVENING });
+    assert.ok(moved.ok && moved.price === 1_339_700_000);
+  });
+
   test("on neither: not-found, saying which files were read", async () => {
     const { impl } = exchanges({
       [nse("2026-11-16")]: { body: nseZip("2026-11-16"), type: "application/zip" },

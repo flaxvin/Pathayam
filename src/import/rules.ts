@@ -102,12 +102,17 @@ const CHANNELS = ["UPI", "IMPS", "NEFT", "RTGS", "POS", "ATM", "ECS", "NACH", "A
  * 431202847592 and merchant SWIGGY — so a rule can say "merchant contains
  * SWIGGY" and keep working when the order id changes, which it does every time.
  */
-export function extractNarrationFields(narration: string): {
+export function extractNarrationFields(fullNarration: string): {
   channel: string | null;
   vpa: string | null;
   merchant: string | null;
   reference: string | null;
 } {
+  // Weekly 18-11 · The patterns below backtrack over a long run of one kind
+  // of character, and this runs on the request thread for every imported
+  // row: a 40 KB cell of digits took three seconds, a 400 KB one minutes.
+  // A real narration is a few hundred characters; only its start is read.
+  const narration = fullNarration.slice(0, NARRATION_READ_LIMIT);
   const upper = narration.toUpperCase();
 
   const channel = CHANNELS.find((c) => new RegExp(`(^|[^A-Z])${c}([^A-Z]|$)`).test(upper)) ?? null;
@@ -399,6 +404,9 @@ export function evaluateCondition(subject: RuleSubject, condition: Condition): b
   }
 }
 
+/** Weekly 18-11 · How much of a narration its channel, VPA, merchant and reference are read from. */
+export const NARRATION_READ_LIMIT = 500;
+
 /** Decision 10 · The longest pattern a rule may hold. */
 export const PATTERN_MAX_LENGTH = 200;
 /** Decision 10 · How much of a narration (or any field) a pattern is tested against. */
@@ -410,6 +418,12 @@ export const PATTERN_INPUT_LIMIT = 500;
  * crafted 500-character narration.
  */
 export const PATTERN_MAX_OPEN_REPEATS = 2;
+/**
+ * Weekly 18-11 · The estimated backtracking a pattern may cost on a
+ * PATTERN_INPUT_LIMIT-character narration: four times that of two open
+ * repeats ("UPI.*SWIGGY.*"), so two open repeats and two ? still pass.
+ */
+export const PATTERN_MAX_WORK = (4 * PATTERN_INPUT_LIMIT ** 3) / 6;
 
 const warnedPatterns = new Set<string>();
 function warnSkippedPattern(pattern: string, problem: string): void {
@@ -441,10 +455,12 @@ export function patternProblem(pattern: string): string | null {
     return `"${pattern}" isn't a pattern I can read.`;
   }
 
-  interface Frame { repeats: boolean; branches: string[]; current: string | null; atomsInBranch: number }
-  const newFrame = (): Frame => ({ repeats: false, branches: [], current: null, atomsInBranch: 0 });
+  interface Frame { repeats: boolean; variable: boolean; branches: string[]; current: string | null; atomsInBranch: number }
+  const newFrame = (): Frame => ({ repeats: false, variable: false, branches: [], current: null, atomsInBranch: 0 });
   const stack: Frame[] = [newFrame()];
   let openRepeats = 0;
+  /** The product of (most − least + 1) over the bounded variable quantifiers: ?, {0,20}… */
+  let boundedChoices = 1;
   const nested =
     "A pattern can't repeat something that itself repeats (like (a+)+ or (\\w*)*): " +
     "on a long narration it can take minutes to give up. Repeat the inside once, e.g. (a+) or a+.";
@@ -453,11 +469,11 @@ export function patternProblem(pattern: string): string | null {
     "on a long narration it can take minutes to give up.";
 
   /** Reads a quantifier at i; returns its length and kind, or null. */
-  const quantifierAt = (i: number): { len: number; repeats: boolean; open: boolean } | null => {
+  const quantifierAt = (i: number): { len: number; repeats: boolean; open: boolean; choices: number } | null => {
     const c = pattern[i];
-    let len = 0, repeats = false, open = false;
+    let len = 0, repeats = false, open = false, choices = 1;
     if (c === "*" || c === "+") { len = 1; repeats = true; open = true; }
-    else if (c === "?") { len = 1; }
+    else if (c === "?") { len = 1; choices = 2; }
     else if (c === "{") {
       const m = /^\{(\d+)(,(\d*))?\}/.exec(pattern.slice(i));
       if (!m) return null;
@@ -466,9 +482,10 @@ export function patternProblem(pattern: string): string | null {
       const hi = m[2] === undefined ? lo : m[3] === "" ? Infinity : Number(m[3]);
       repeats = hi > 1 && hi !== lo;
       open = hi > 20;
+      if (!open) choices = hi - lo + 1;
     } else return null;
     if (pattern[i + len] === "?") len++; // lazy
-    return { len, repeats, open };
+    return { len, repeats, open, choices };
   };
 
   /** One atom was read, its text `atom`, ending before i. Applies any quantifier; returns the new i. */
@@ -479,11 +496,15 @@ export function patternProblem(pattern: string): string | null {
     const q = quantifierAt(i);
     if (!q) {
       if (inner?.repeats) frame.repeats = true;
+      if (inner?.variable) frame.variable = true;
       return i;
     }
     if (q.open) openRepeats++;
+    else boundedChoices = Math.min(boundedChoices * q.choices, Number.MAX_SAFE_INTEGER);
     if (q.repeats && inner) {
-      if (inner.repeats) throw new Error(nested);
+      // Weekly 18-11 · Not only a repeat inside a repeat: anything optional
+      // inside one, (\w?\w){1,20}, backtracks the same way.
+      if (inner.repeats || inner.variable) throw new Error(nested);
       const firsts = [...inner.branches, inner.atomsInBranch > 0 ? inner.current! : ""];
       if (firsts.length > 1) {
         const lowered = firsts.map((f) => f.toLowerCase());
@@ -494,6 +515,7 @@ export function patternProblem(pattern: string): string | null {
       }
     }
     if (q.repeats || inner?.repeats) frame.repeats = true;
+    if (q.repeats || q.open || q.choices > 1 || inner?.variable) frame.variable = true;
     return i + q.len;
   };
 
@@ -547,6 +569,17 @@ export function patternProblem(pattern: string): string | null {
   if (openRepeats > PATTERN_MAX_OPEN_REPEATS) {
     return `A pattern can use open-ended repeats (*, + or {n,}) at most ${PATTERN_MAX_OPEN_REPEATS} times; ` +
       `this one has ${openRepeats}. More can take minutes to give up on a long narration.`;
+  }
+  // Weekly 18-11 · Bounded repeats and ? multiply too: \w{0,20} eight times,
+  // or \w? twenty times, never gave up on a 500-character narration. The work
+  // is roughly the bounded choices, times the ways the open repeats can share
+  // the text, at every starting point.
+  const n = PATTERN_INPUT_LIMIT;
+  let work = boundedChoices * n;
+  for (let k = 1; k <= openRepeats; k++) work = (work * n) / (k + 1);
+  if (work > PATTERN_MAX_WORK) {
+    return "A pattern has too many optional or repeated parts (?, *, + or {n,m}) for one rule: " +
+      "together they can take minutes to give up on a long narration. Use fewer, or split it into two rules.";
   }
   return null;
 }

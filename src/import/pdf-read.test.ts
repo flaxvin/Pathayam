@@ -93,6 +93,8 @@ describe("PDF-1 · a slow, huge or second file", () => {
     assert.ok(took < 1_000, `gave up after ${took.toFixed(0)} ms`);
     // This thread kept running timers while the worker chewed.
     assert.ok(ticks >= 5, `only ${ticks} ticks`);
+    // The follow-up read gets the normal deadline: 300 ms can expire on a loaded machine.
+    setPdfReadLimits({ deadlineMs: PDF_READ_DEADLINE_MS });
     assert.ok(await readCasPdf(FIXTURES.plain, ""));
   });
 

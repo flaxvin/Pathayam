@@ -565,6 +565,7 @@ export async function priceFromBhavcopy(
 
   const failures: string[] = [];
   let worst: PriceFailure["reason"] = "not-found";
+  const days: BhavDay[] = [];
   for (const exchange of order) {
     const latest = await latestDay(exchange, opts, now);
     if ("failure" in latest) {
@@ -572,11 +573,28 @@ export async function priceFromBhavcopy(
       worst = latest.failure.reason;
       continue;
     }
-    const row = findRow(latest.day, id);
-    if (!row) {
-      failures.push(`${exchange}'s file for ${latest.day.tradeDate} does not list it.`);
-      continue;
-    }
+    days.push(latest.day);
+    // Weekly 18-11 · With an ISIN, every exchange is asked for the ISIN
+    // before any is asked for the symbol: a BSE-only share whose ticker is
+    // another company's on NSE was priced as that other company.
+    const row = findRow(latest.day, id.isin ? { ...id, symbol: null, bseCode: null } : id);
+    if (row) return found(row);
+  }
+  for (const day of days) {
+    const row = id.isin ? findRow(day, id) : null;
+    if (row) return found(row);
+    failures.push(`${day.exchange}'s file for ${day.tradeDate} does not list it.`);
+  }
+  // "Not listed anywhere" only when every exchange answered; otherwise the
+  // failure that stopped us, so a caller can tell an outage from a typo.
+  const allAnswered = failures.every((f) => f.includes("does not list it"));
+  return {
+    ok: false, source: "bhavcopy",
+    reason: allAnswered ? "not-found" : worst,
+    message: failures.join(" "),
+  };
+
+  function found(row: BhavRow): PriceOutcome {
     return {
       ok: true,
       price: toMicroRupees(row.close),
@@ -588,14 +606,6 @@ export async function priceFromBhavcopy(
       isin: row.isin || null,
     };
   }
-  // "Not listed anywhere" only when every exchange answered; otherwise the
-  // failure that stopped us, so a caller can tell an outage from a typo.
-  const allAnswered = failures.every((f) => f.includes("does not list it"));
-  return {
-    ok: false, source: "bhavcopy",
-    reason: allAnswered ? "not-found" : worst,
-    message: failures.join(" "),
-  };
 }
 
 export const bhavcopy: Provider = {

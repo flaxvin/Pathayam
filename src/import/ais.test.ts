@@ -252,3 +252,24 @@ describe("TAX-AIS · the layout of a real statement (synthetic figures)", () => 
     assert.equal(b7.tds, 0);
   });
 });
+
+describe("weekly 18-11 · a line of trailing spaces", () => {
+  test("the AIS, CAS and SafeGold readers take milliseconds over a 200 KB run of spaces", async () => {
+    // Each line's trailing spaces were trimmed with /\s+$/, which backtracks
+    // quadratically over spaces followed by text: 500 KB took 82 s, and a slow
+    // file holds the one PDF reader for every other upload.
+    const { parseCasText } = await import("./cas.ts");
+    const { parseSafeGoldText } = await import("./safegold.ts");
+    const spaces = "1 " + " ".repeat(200_000) + "x";
+    const ais = aisText(sampleAis()) + "\n" + spaces;
+    for (const [what, read] of [
+      ["AIS", () => parseAisText(ais)],
+      ["CAS", () => parseCasText(spaces)],
+      ["SafeGold", () => parseSafeGoldText(spaces)],
+    ] as const) {
+      const started = Date.now();
+      try { read(); } catch { /* refused as not that kind of file: fine */ }
+      assert.ok(Date.now() - started < 1_000, `${what}: ${Date.now() - started} ms`);
+    }
+  });
+});
