@@ -455,12 +455,38 @@ export function patternProblem(pattern: string): string | null {
     return `"${pattern}" isn't a pattern I can read.`;
   }
 
-  interface Frame { repeats: boolean; variable: boolean; branches: string[]; current: string | null; atomsInBranch: number }
-  const newFrame = (): Frame => ({ repeats: false, variable: false, branches: [], current: null, atomsInBranch: 0 });
+  /*
+   * Weekly 25-11 · `ways` counts the bounded ways a group can match:
+   * (most − least + 1) for each ?, {0,20}…, and also each choice between
+   * options that can start alike, raised to the power of an exact repeat
+   * around it. ((?:\w|\d){5}){5} is 2^25 ways and passed uncounted:
+   * seventeen seconds on a 30-character narration.
+   */
+  interface Frame {
+    repeats: boolean; variable: boolean; branches: string[]; current: string | null; atomsInBranch: number;
+    ways: number; doneWays: number[];
+    /** Open-ended repeats inside, counted as often as an exact repeat around them runs them. */
+    open: number;
+  }
+  const newFrame = (): Frame => ({
+    repeats: false, variable: false, branches: [], current: null, atomsInBranch: 0, ways: 1, doneWays: [], open: 0,
+  });
   const stack: Frame[] = [newFrame()];
   let openRepeats = 0;
-  /** The product of (most − least + 1) over the bounded variable quantifiers: ?, {0,20}… */
-  let boundedChoices = 1;
+  const cap = (n: number) => Math.min(n, Number.MAX_SAFE_INTEGER);
+  /** Whether a choice's options can start the same way (or one can be empty). */
+  const optionsOverlap = (firsts: string[]): boolean => {
+    if (firsts.length < 2) return false;
+    const lowered = firsts.map((f) => f.toLowerCase());
+    return lowered.some((f) => f === "" || BROAD_ATOM.test(f) || f.startsWith("("))
+      || new Set(lowered).size < lowered.length;
+  };
+  const firstsOf = (f: Frame) => [...f.branches, f.atomsInBranch > 0 ? f.current! : ""];
+  /** A finished group's ways: options that can start alike add up; ones that cannot, at most one runs. */
+  const waysOf = (f: Frame): number => {
+    const all = [...f.doneWays, f.ways];
+    return optionsOverlap(firstsOf(f)) ? cap(all.reduce((a, b) => a + b, 0)) : Math.max(...all);
+  };
   const nested =
     "A pattern can't repeat something that itself repeats (like (a+)+ or (\\w*)*): " +
     "on a long narration it can take minutes to give up. Repeat the inside once, e.g. (a+) or a+.";
@@ -469,9 +495,9 @@ export function patternProblem(pattern: string): string | null {
     "on a long narration it can take minutes to give up.";
 
   /** Reads a quantifier at i; returns its length and kind, or null. */
-  const quantifierAt = (i: number): { len: number; repeats: boolean; open: boolean; choices: number } | null => {
+  const quantifierAt = (i: number): { len: number; repeats: boolean; open: boolean; choices: number; most: number } | null => {
     const c = pattern[i];
-    let len = 0, repeats = false, open = false, choices = 1;
+    let len = 0, repeats = false, open = false, choices = 1, most = 1;
     if (c === "*" || c === "+") { len = 1; repeats = true; open = true; }
     else if (c === "?") { len = 1; choices = 2; }
     else if (c === "{") {
@@ -482,10 +508,11 @@ export function patternProblem(pattern: string): string | null {
       const hi = m[2] === undefined ? lo : m[3] === "" ? Infinity : Number(m[3]);
       repeats = hi > 1 && hi !== lo;
       open = hi > 20;
+      most = hi;
       if (!open) choices = hi - lo + 1;
     } else return null;
     if (pattern[i + len] === "?") len++; // lazy
-    return { len, repeats, open, choices };
+    return { len, repeats, open, choices, most };
   };
 
   /** One atom was read, its text `atom`, ending before i. Applies any quantifier; returns the new i. */
@@ -494,28 +521,36 @@ export function patternProblem(pattern: string): string | null {
     if (frame.atomsInBranch === 0) frame.current = atom;
     frame.atomsInBranch++;
     const q = quantifierAt(i);
+    const innerWays = inner ? waysOf(inner) : 1;
+    const innerOpen = inner?.open ?? 0;
     if (!q) {
       if (inner?.repeats) frame.repeats = true;
-      if (inner?.variable) frame.variable = true;
+      if (inner?.variable || innerWays > 1) frame.variable = true;
+      frame.ways = cap(frame.ways * innerWays);
+      frame.open += innerOpen;
       return i;
     }
-    if (q.open) openRepeats++;
-    else boundedChoices = Math.min(boundedChoices * q.choices, Number.MAX_SAFE_INTEGER);
+    // Weekly 25-11 · (?:\w*){5} is five open repeats, not one: an exact count
+    // is not "a repeat" to the nesting check, so its runs are counted here.
+    const runs = Number.isFinite(q.most) ? Math.max(1, q.most) : 1;
+    openRepeats += innerOpen * (runs - 1);
+    frame.open += innerOpen * runs;
+    if (q.open) {
+      openRepeats++;
+      frame.open++;
+      // (?:a|a){25}: an exact count over 20 still multiplies the choice each time.
+      frame.ways = cap(frame.ways * (Number.isFinite(q.most) ? innerWays ** q.most : innerWays));
+    } else {
+      frame.ways = cap(frame.ways * q.choices * innerWays ** q.most);
+    }
     if (q.repeats && inner) {
       // Weekly 18-11 · Not only a repeat inside a repeat: anything optional
       // inside one, (\w?\w){1,20}, backtracks the same way.
       if (inner.repeats || inner.variable) throw new Error(nested);
-      const firsts = [...inner.branches, inner.atomsInBranch > 0 ? inner.current! : ""];
-      if (firsts.length > 1) {
-        const lowered = firsts.map((f) => f.toLowerCase());
-        if (lowered.some((f) => f === "" || BROAD_ATOM.test(f) || f.startsWith("("))
-            || new Set(lowered).size < lowered.length) {
-          throw new Error(overlapping);
-        }
-      }
+      if (optionsOverlap(firstsOf(inner))) throw new Error(overlapping);
     }
     if (q.repeats || inner?.repeats) frame.repeats = true;
-    if (q.repeats || q.open || q.choices > 1 || inner?.variable) frame.variable = true;
+    if (q.repeats || q.open || q.choices > 1 || inner?.variable || innerWays > 1) frame.variable = true;
     return i + q.len;
   };
 
@@ -552,6 +587,8 @@ export function patternProblem(pattern: string): string | null {
       } else if (c === "|") {
         const frame = stack[stack.length - 1]!;
         frame.branches.push(frame.atomsInBranch > 0 ? frame.current! : "");
+        frame.doneWays.push(frame.ways);
+        frame.ways = 1;
         frame.atomsInBranch = 0;
         frame.current = null;
         i++;
@@ -573,9 +610,10 @@ export function patternProblem(pattern: string): string | null {
   // Weekly 18-11 · Bounded repeats and ? multiply too: \w{0,20} eight times,
   // or \w? twenty times, never gave up on a 500-character narration. The work
   // is roughly the bounded choices, times the ways the open repeats can share
-  // the text, at every starting point.
+  // the text, at every starting point. Weekly 25-11: and choices between
+  // options that can start alike, repeated an exact number of times.
   const n = PATTERN_INPUT_LIMIT;
-  let work = boundedChoices * n;
+  let work = waysOf(stack[0]!) * n;
   for (let k = 1; k <= openRepeats; k++) work = (work * n) / (k + 1);
   if (work > PATTERN_MAX_WORK) {
     return "A pattern has too many optional or repeated parts (?, *, + or {n,m}) for one rule: " +
