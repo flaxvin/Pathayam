@@ -54,6 +54,28 @@ const one = async (s: string, resolve: TxtResolver = bankDns, now?: Date): Promi
   return r[0]!;
 };
 
+test("weekly 25-11 · a body of blank lines, a spaced header name or a spaced tag is read in milliseconds", async () => {
+  const quick = <T>(what: string, f: () => T): T => {
+    const started = Date.now();
+    const out = f();
+    assert.ok(Date.now() - started < 300, `${what}: ${Date.now() - started} ms`);
+    return out;
+  };
+  const blank = "\r\n".repeat(100_000) + "x";
+  assert.equal(quick("simple body", () => canonBody(blank, "simple")), blank + "\r\n");
+  assert.equal(quick("relaxed body", () => canonBody(blank, "relaxed")), blank + "\r\n");
+  const { fields } = quick("spaced name", () => splitMessage("A" + " ".repeat(100_000) + "B: v\r\n\r\nbody"));
+  assert.equal(fields[0]!.name, "A" + " ".repeat(100_000) + "B");
+  const tags = quick("spaced tag", () => parseTags("v=" + " ".repeat(100_000) + "1" + " ".repeat(100_000) + "x ; d= a.example \r\n"));
+  assert.equal(tags?.get("d"), "a.example");
+  assert.equal(tags?.get("v")?.length, 100_002);
+  // Still signed and verified as before, blank lines and all.
+  const started = Date.now();
+  const r = await one(signed({ canon: "simple/simple" }, MAIL.replace(/\r\n\r\n$/, "\r\n".repeat(50_000))));
+  assert.equal(r.result, "pass");
+  assert.ok(Date.now() - started < 2_000, `verify: ${Date.now() - started} ms`);
+});
+
 test("canonicalisation matches RFC 6376 §3.4.6 example", () => {
   const { fields, body } = splitMessage("A: X\r\nB : Y\t\r\n\tZ  \r\n\r\n C \r\nD \t E\r\n\r\n\r\n");
   assert.equal(fields.map((f) => canonHeader(f, "relaxed")).join(""), "a:X\r\nb:Y Z\r\n");

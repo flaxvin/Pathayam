@@ -85,6 +85,22 @@ interface RawHeader { name: string; value: string } // value: unfolded, latin1
 interface Entity { headers: RawHeader[]; body: string }
 interface Collected { plain: string[]; html: string[]; attachments: MailAttachment[] }
 
+/**
+ * A header line's name and value, as /^([^:]+?)[ \t]*:(.*)$/ reads it, or
+ * null. Weekly 25-11 · Read by hand: that pattern backtracks over a run of
+ * spaces in a line with no colon (or before a late one), and 50 KB of them
+ * in one header line, from anyone with a forwarding address, took 1.3 s.
+ */
+function fieldOf(line: string): RawHeader | null {
+  const colon = line.indexOf(":");
+  if (colon < 1) return null;
+  const value = line.slice(colon + 1);
+  if (/[\n\r\u2028\u2029]/.test(value)) return null; // "." does not match these
+  let end = colon;
+  while (end > 1 && (line[end - 1] === " " || line[end - 1] === "\t")) end--;
+  return { name: line.slice(0, end), value };
+}
+
 /** Split a header block from its body. Accepts CRLF or bare LF line ends. */
 function splitEntity(s: string): Entity {
   const headers: RawHeader[] = [];
@@ -107,8 +123,8 @@ function splitEntity(s: string): Entity {
        * slipped among a bank's headers was an unsigned field to DKIM, which
        * passed, and the start of the message's text here.
        */
-      const m = line.match(/^([^:]+?)[ \t]*:(.*)$/);
-      if (m) headers.push({ name: m[1]!, value: m[2]! });
+      const m = fieldOf(line);
+      if (m) headers.push(m);
       else if (!(first && line.startsWith("From "))) {
         // Not a header and not an mbox "From " line: the header block ended without a blank line.
         return { headers, body: s.slice(pos) };

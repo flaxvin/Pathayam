@@ -58,7 +58,7 @@ export function splitMessage(raw: Uint8Array | string): { fields: HeaderField[];
     } else {
       const colon = line.indexOf(":");
       if (colon <= 0) return { fields, body: s.slice(pos) }; // header block ended without a blank line
-      fields.push({ name: line.slice(0, colon).replace(/[ \t]+$/, ""), raw: line });
+      fields.push({ name: trimEndOf(line.slice(0, colon), " \t"), raw: line });
     }
     pos = next;
   }
@@ -78,14 +78,39 @@ export function canonHeader(field: HeaderField, mode: Canon): string {
   return `${name}:${value}\r\n`;
 }
 
+/*
+ * Weekly 25-11 · Trailing runs are cut by hand: /(\r\n)*$/, /[ \t]+$/ and
+ * the like try again from every position of a long run that something else
+ * ends, so a body of 50,000 blank lines and an "x" took 3.9 s to canonicalise,
+ * on the thread that answers every request, for anyone with a forwarding
+ * address and a domain of their own to sign with.
+ */
+function withoutTrailingCrlfs(s: string): string {
+  let end = s.length;
+  while (end >= 2 && s[end - 2] === "\r" && s[end - 1] === "\n") end -= 2;
+  return s.slice(0, end);
+}
+
+function trimEndOf(s: string, chars: string): string {
+  let end = s.length;
+  while (end > 0 && chars.includes(s[end - 1]!)) end--;
+  return s.slice(0, end);
+}
+
+function trimStartOf(s: string, chars: string): string {
+  let start = 0;
+  while (start < s.length && chars.includes(s[start]!)) start++;
+  return s.slice(start);
+}
+
 /** RFC 6376 §3.4.3 / §3.4.4. A relaxed empty body is empty; a simple one is a lone CRLF. */
 export function canonBody(body: string, mode: Canon): string {
   if (mode === "simple") {
-    const b = body.replace(/(\r\n)*$/, "");
+    const b = withoutTrailingCrlfs(body);
     return b + "\r\n";
   }
   const lines = body.split("\r\n").map((l) => l.replace(/[ \t]+/g, " ").replace(/ $/, ""));
-  let text = lines.join("\r\n").replace(/(\r\n)*$/, "");
+  let text = withoutTrailingCrlfs(lines.join("\r\n"));
   if (text !== "") text += "\r\n";
   return text;
 }
@@ -135,7 +160,7 @@ export function parseTags(value: string): Map<string, string> | null {
     if (eq === -1) return null;
     const name = spec.slice(0, eq).trim();
     if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name) || tags.has(name)) return null;
-    tags.set(name, spec.slice(eq + 1).replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, ""));
+    tags.set(name, trimEndOf(trimStartOf(spec.slice(eq + 1), " \t\r\n"), " \t\r\n"));
   }
   return tags;
 }

@@ -2,6 +2,21 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseMail, mailHeader, addressOf } from "./mime.ts";
 
+test("weekly 25-11 · a header line of spaces, with or without a colon, is read in milliseconds", () => {
+  for (const line of ["X" + " ".repeat(100_000), "X" + " \t".repeat(50_000) + "y", "Subject" + " ".repeat(100_000) + ": hi"]) {
+    const raw = new Uint8Array(Buffer.from(`From: alerts@bank.example\r\n${line}\r\n\r\nINR 10 debited`));
+    const started = Date.now();
+    const mail = parseMail(raw);
+    assert.ok(Date.now() - started < 300, `${Date.now() - started} ms`);
+    assert.equal(mail.from, "alerts@bank.example");
+  }
+  // The field reading is unchanged: spaces before the colon go, a name with a space stays a field.
+  const mail = parseMail(new Uint8Array(Buffer.from("From: a@bank.example\r\nSubject \t: Debit\r\nAmount Debited: INR 9\r\n\r\nbody")));
+  assert.equal(mail.subject, "Debit");
+  assert.equal(mailHeader(mail, "amount debited"), "INR 9");
+  assert.equal(mail.text.includes("Amount Debited"), false);
+});
+
 const enc = (s: string): Uint8Array => Buffer.from(s, "utf8");
 const crlf = (s: string): string => s.replace(/\r?\n/g, "\r\n");
 
