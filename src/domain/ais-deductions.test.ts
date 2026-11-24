@@ -15,6 +15,7 @@ import { saveDeclaration, getDeclaration, estimateUnder } from "./tax.ts";
 import { freshDb, seedMember } from "../web/harness.test-data.ts";
 import { taxPageModel } from "../web/screen-data.ts";
 import { renderTax } from "../web/pages/tax.ts";
+import { aiTaxEstimate } from "../ai/analysis.ts";
 
 type Kind = "salary" | "interest-savings" | "interest-deposit" | "dividend";
 
@@ -138,5 +139,32 @@ describe("DECA-1 · 80TTA and 80TTB, old regime only", () => {
     assert.equal(e.interestDeduction, 0);
     assert.equal(e.interestSection, null);
     assert.equal(e.standardDeduction, rupees(50_000));
+  });
+});
+
+describe("WEB-1 (25-11) · the AI tax tool lists every deduction the estimate takes", () => {
+  test("80TTA and employer NPS are itemised, so the lines add up to taxable income", () => {
+    const { db } = withAis(2025, [["salary", 10_00_000], ["interest-savings", 25_000]], { gross: 10_25_000, dob: "01011980" });
+    saveDeclaration(db, "m", 2025, {
+      ...getDeclaration(db, "m", 2025),
+      s80ccd2: rupees(40_000),
+      hra: { received: 0 as Paise, rentPaid: 0 as Paise, basic: rupees(5_00_000), metro: false },
+    });
+    type Regime = Record<string, number | string | null>;
+    const out = aiTaxEstimate(db, "m", { fy: 2025 }) as { estimate: { old_regime: Regime; new_regime: Regime } };
+    const old = out.estimate.old_regime;
+    assert.equal(old.interest_deduction, 10_000);
+    assert.equal(old.interest_deduction_section, "80TTA");
+    assert.equal(old.employer_nps_80ccd2, 40_000);
+    for (const r of [old, out.estimate.new_regime]) {
+      const n = (k: string) => Number(r[k]);
+      assert.equal(
+        n("gross_income") - n("standard_deduction") - n("hra_exempt") - n("home_loan_interest")
+          - n("chapter_via_deductions") - n("employer_nps_80ccd2") - n("interest_deduction"),
+        n("taxable_income"),
+      );
+    }
+    assert.equal(out.estimate.new_regime.interest_deduction, 0);
+    assert.equal(out.estimate.new_regime.interest_deduction_section, null);
   });
 });
