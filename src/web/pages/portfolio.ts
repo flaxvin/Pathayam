@@ -28,6 +28,16 @@ export interface PortfolioRow {
   accountName: string;
 }
 
+/**
+ * UI-3 (weekly 25-11) · A return as a percentage, two places. A portfolio
+ * whose prices had not moved yet showed "XIRR -0.00%": the solver lands a hair
+ * below zero and toFixed keeps the sign of a value that rounds to nothing.
+ */
+export function formatReturnPct(pct: number): string {
+  const shown = pct.toFixed(2);
+  return Number(shown) === 0 ? "0.00%" : `${shown}%`;
+}
+
 export function renderPortfolio(opts: {
   rows: PortfolioRow[];
   manualAssets: {
@@ -99,7 +109,7 @@ export function renderPortfolio(opts: {
           <div>
             <div class="faint">XIRR <span class="chip">money-weighted</span></div>
             <strong class="amount" style="font-size:1.15rem">
-              ${opts.portfolioXirr!.toFixed(2)}%
+              ${formatReturnPct(opts.portfolioXirr!)}
             </strong>
           </div>
         `)}
@@ -755,7 +765,7 @@ export function renderHoldingDetail(opts: {
           <!-- R27.1: XIRR is the headline for anything with more than one lot. -->
           <div class="faint">XIRR <span class="chip">money-weighted</span></div>
           <strong class="amount" style="font-size:1.15rem">
-            ${v.xirr !== null ? `${v.xirr.toFixed(2)}%` : "—"}
+            ${v.xirr !== null ? formatReturnPct(v.xirr) : "—"}
           </strong>
         </div>
       </div>
@@ -786,8 +796,8 @@ export function renderHoldingDetail(opts: {
 
       ${when(v.xirr !== null && Math.abs(v.absoluteReturn - v.xirr!) >= 2, () => html`
         <p class="field-hint">
-          Absolute return says ${v.absoluteReturn.toFixed(2)}%, XIRR says
-          ${v.xirr!.toFixed(2)}%. The difference is time: absolute return treats
+          Absolute return says ${formatReturnPct(v.absoluteReturn)}, XIRR says
+          ${formatReturnPct(v.xirr!)}. The difference is time: absolute return treats
           money you invested last month as though it had been in since the start.
         </p>
       `)}
