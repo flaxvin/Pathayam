@@ -51,46 +51,50 @@
 </header>
 
 <main id="main">
-  <section class="sec sec--tight">
-    <div class="wrap center">
-      <p class="eyebrow">API reference</p>
-      <h1 style="font-size:var(--step-5);max-width:19ch;margin-inline:auto">Every screen is already an endpoint</h1>
-      <p class="lede" style="font-size:var(--step-2);max-width:54ch">
+  <section class="api-hero">
+    <div class="wrap">
+      <h1>Every screen is already an endpoint</h1>
+      <p class="lede">
         The app is server-rendered, so there is no second API to keep in sync.
         A personal token authenticates a script against the same routes your
         browser uses, and an AI app reads the same figures through an
         <a href="#ai">MCP server at <code>/mcp</code></a>, read-only unless you allow it to make changes.
       </p>
+      <div class="actions">
+        <a class="btn btn--primary" href="#budget">Endpoints</a>
+        <a class="btn btn--ghost" href="#ai">Connect an AI (MCP)</a>
+      </div>
     </div>
   </section>
 
-  <section class="sec sec--tight sec--band">
-    <div class="wrap">
-      <h2 class="sr-only">How it works</h2>
-        <div class="cards">
-        <div class="card">
+  <section class="basics" aria-labelledby="h-basics">
+    <div class="wrap basics__grid">
+      <h2 class="sr-only" id="h-basics">How it works</h2>
+      <div class="basics__rows">
+        <div class="basics__row">
           <h3>Authentication</h3>
           <p>The host in every example below is <strong>your own instance</strong>: the machine you self-host on, or your hosted subdomain. The public demo at <code>demo.pathayam.app</code> lets anyone in without an account and issues no tokens, so these examples will not run against it.</p>
         <p>One header on every request: <code>Authorization: Bearer bgt_…</code>. Tokens are minted in Settings (never while viewing as another member), scoped read or read-write, and shown exactly once. One expires after a whole number of days from 1 to 3650, or never, and stops working the moment its member is removed.</p>
         <p>An AI app needs no token pasted in: give it your address with <code>/mcp</code> on the end and it signs in through OAuth 2.1, then holds an ordinary read token of its own. See <a href="#ai">Connect an AI</a>.</p>
         </div>
-        <div class="card">
+        <div class="basics__row">
           <h3>Idempotency</h3>
           <p>Every write accepts <code>Idempotency-Key</code>. Replaying a key returns the original result instead of acting twice, so you can safely retry after a timeout. The same key with a different body is refused with <code>422</code>.</p>
         </div>
-        <div class="card">
+        <div class="basics__row">
           <h3>Responses</h3>
           <p>Reads return HTML, because this is the same app your browser uses. <code>/export.json</code>, <code>/export/analysis.json</code>, the CSVs, <code>/mcp</code> and <code>/healthz</code> return data. Writes redirect on success. Send <code>Accept: application/json</code> and a write answers <code>{ "redirect": …, "message": … }</code> instead, an error comes back as <code>{ "error": … }</code> with its status, and a request that is not signed in gets <code>401</code> rather than a redirect to the sign-in page.</p>
         </div>
       </div>
-      <div class="note" style="margin-top:1.5rem">
+      <div class="basics__side">
+      <div class="note">
         <b>Amounts are rupees</b> in requests and integer paise internally, so nothing is ever
         stored as a float. Dates are <code>YYYY-MM-DD</code> (or <code>DD-MM-YYYY</code>, the way the app shows them)
         and months are <code>YYYY-MM</code>, both in IST; a month more than a hundred years from the rest of the
         budget is refused. Send fields form-encoded, as multipart, or as a flat JSON object. A number or
         <code>true</code> is read as the text a form would send, and a nested object is ignored.
       </div>
-      <h3 style="margin-top:1.5rem">Scopes</h3>
+      <h3>Scopes</h3>
       <div class="table-scroll">
         <table>
           <thead><tr><th>Scope</th><th>Reads (<code>GET</code>)</th><th>Writes (<code>POST</code>)</th></tr></thead>
@@ -100,11 +104,12 @@
           </tbody>
         </table>
       </div>
-      <p style="margin-top:.75rem">A scope is fixed when the token is minted. To change it, revoke the token and mint another.</p>
+      <p>A scope is fixed when the token is minted. To change it, revoke the token and mint another.</p>
+      </div>
     </div>
   </section>
 
-  <section class="sec sec--tight">
+  <section class="api-ref">
     <div class="wrap">
       <div class="docs">
         <nav class="docs__rail" aria-label="Endpoints">
@@ -130,7 +135,7 @@
           <li><a href="#refused">What a token cannot reach</a></li>
           </ol>
         </nav>
-        <div>
+        <div class="api-col">
       <section class="api-group" id="budget">
         <h2>Budget &amp; money</h2>
         <p>Everything that moves money between envelopes. These are the routes that change what your budget says.</p>
@@ -149,15 +154,15 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>month</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>YYYY-MM</code>. Defaults to the current month in IST.</td></tr>
-                <tr><td><code>budget</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Which budget, in a household with more than one. Defaults to the last one viewed.</td></tr>
+                <tr><td><code>month</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>YYYY-MM</code>. Defaults to the current month in IST.</td></tr>
+                <tr><td><code>budget</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Which budget, in a household with more than one. Defaults to the last one viewed.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
               <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
@@ -185,16 +190,16 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>month</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>YYYY-MM</code>. Defaults to the current month in IST.</td></tr>
-                <tr><td><code>category_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>The category receiving the money.</td></tr>
-                <tr><td><code>amount</code></td><td class="m">number</td><td><span class='opt'>optional</span></td><td>Rupees. Accepts an expression such as <code>450+120</code>. Empty sets it to 0.</td></tr>
+                <tr><td><code>month</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>YYYY-MM</code>. Defaults to the current month in IST.</td></tr>
+                <tr><td><code>category_id</code></td><td class="m">string</td><td><span class="req">required</span></td><td>The category receiving the money.</td></tr>
+                <tr><td><code>amount</code></td><td class="m">number</td><td><span class="opt">optional</span></td><td>Rupees. Accepts an expression such as <code>450+120</code>. Empty sets it to 0.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
@@ -228,17 +233,17 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>month</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>YYYY-MM</code>. Defaults to the current month in IST.</td></tr>
-                <tr><td><code>from_category_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>Where the money comes from. <code>rta</code> takes it from Ready to Assign.</td></tr>
-                <tr><td><code>to_category_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>Where it goes.</td></tr>
-                <tr><td><code>amount</code></td><td class="m">number</td><td><span class='req'>required</span></td><td>Rupees.</td></tr>
+                <tr><td><code>month</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>YYYY-MM</code>. Defaults to the current month in IST.</td></tr>
+                <tr><td><code>from_category_id</code></td><td class="m">string</td><td><span class="req">required</span></td><td>Where the money comes from. <code>rta</code> takes it from Ready to Assign.</td></tr>
+                <tr><td><code>to_category_id</code></td><td class="m">string</td><td><span class="req">required</span></td><td>Where it goes.</td></tr>
+                <tr><td><code>amount</code></td><td class="m">number</td><td><span class="req">required</span></td><td>Rupees.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
@@ -264,7 +269,7 @@
             <span class="ep__sum">Hold income for next month</span>
           </summary>
           <div class="ep__body">
-            <p>Take an amount out of this month's Ready to Assign and place it at the top of next month's. Send <code>0</code> to release everything currently held.</p>
+            <p>Take an amount out of this month’s Ready to Assign and place it at the top of next month’s. Send <code>0</code> to release everything currently held.</p>
             <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
             <h3>Parameters</h3>
@@ -272,16 +277,16 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>month</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>The month holding the money back. Defaults to the current month in IST.</td></tr>
-                <tr><td><code>budget</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Which budget, in a household with more than one. Defaults to the last one viewed.</td></tr>
-                <tr><td><code>amount</code></td><td class="m">number</td><td><span class='opt'>optional</span></td><td>Rupees. Empty or <code>0</code> releases the hold.</td></tr>
+                <tr><td><code>month</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>The month holding the money back. Defaults to the current month in IST.</td></tr>
+                <tr><td><code>budget</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Which budget, in a household with more than one. Defaults to the last one viewed.</td></tr>
+                <tr><td><code>amount</code></td><td class="m">number</td><td><span class="opt">optional</span></td><td>Rupees. Empty or <code>0</code> releases the hold.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
@@ -306,7 +311,7 @@
             <span class="ep__sum">Fund every target</span>
           </summary>
           <div class="ep__body">
-            <p>GET previews what funding all targets would do. POST commits it. Money is spent down the budget in your own order, so a short month funds the top of the list first. It funds one budget, from that budget's Ready to Assign.</p>
+            <p>GET previews what funding all targets would do. POST commits it. Money is spent down the budget in your own order, so a short month funds the top of the list first. It funds one budget, from that budget’s Ready to Assign.</p>
             <div><h3>Scope</h3><p><span class="pill pill--r">read</span> to preview, <span class="pill pill--w">read-write</span> to commit</p></div>
           <div>
             <h3>Parameters</h3>
@@ -314,15 +319,15 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>month</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>YYYY-MM</code>. Defaults to the current month in IST.</td></tr>
-                <tr><td><code>budget</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Which budget, in a household with more than one. Defaults to the last one viewed.</td></tr>
+                <tr><td><code>month</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>YYYY-MM</code>. Defaults to the current month in IST.</td></tr>
+                <tr><td><code>budget</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Which budget, in a household with more than one. Defaults to the last one viewed.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
@@ -353,15 +358,15 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>month</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>YYYY-MM</code>. Defaults to the current month in IST.</td></tr>
-                <tr><td><code>budget</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Which budget, in a household with more than one. Defaults to the last one viewed.</td></tr>
+                <tr><td><code>month</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>YYYY-MM</code>. Defaults to the current month in IST.</td></tr>
+                <tr><td><code>budget</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Which budget, in a household with more than one. Defaults to the last one viewed.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
               <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
@@ -381,14 +386,14 @@
             <tbody>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/move</code></td><td><span class="pill pill--r">read</span></td><td><code>month</code>, <code>to</code>, <code>amount</code></td><td>The move form, with the destination and amount filled in when given.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/hold</code></td><td><span class="pill pill--r">read</span></td><td><code>month</code></td><td>The hold form.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/copy-last-month</code></td><td><span class="pill pill--w">read-write</span></td><td><code>month</code></td><td>Copy last month's assignments into this one.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/explain/category/:id</code></td><td><span class="pill pill--r">read</span></td><td><code>month</code></td><td>How one category's available figure is made up.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/overview</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Runway, bills due soon and the month at a glance.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/budgets/personal</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Create your own personal budget if you do not have one, with its household envelope and a few starting envelopes.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/more</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The hub of everything not in the main navigation.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/setup</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The first-run screen: start from a template or blank.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/copy-last-month</code></td><td><span class="pill pill--w">read-write</span></td><td><code>month</code></td><td>Copy last month’s assignments into this one.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/explain/category/:id</code></td><td><span class="pill pill--r">read</span></td><td><code>month</code></td><td>How one category’s available figure is made up.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/overview</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Runway, bills due soon and the month at a glance.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/budgets/personal</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Create your own personal budget if you do not have one, with its household envelope and a few starting envelopes.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/more</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The hub of everything not in the main navigation.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/setup</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The first-run screen: start from a template or blank.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/setup</code></td><td><span class="pill pill--w">read-write</span></td><td><code>monthly_income</code>, <code>has_emis</code>, <code>has_school_fees</code>, <code>has_domestic_help</code> (each <code>1</code> for yes)</td><td>Create starting categories from a template. Then to <code>/accounts/new</code>.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/setup/blank</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Start with no categories. Then to <code>/accounts/new</code>.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/setup/blank</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Start with no categories. Then to <code>/accounts/new</code>.</td></tr>
             </tbody>
           </table>
         </div>
@@ -408,7 +413,7 @@
 
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
               <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
@@ -433,7 +438,7 @@
 
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
               <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
@@ -451,20 +456,20 @@
           <table>
             <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
             <tbody>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/new</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The new-account form.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/new</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The new-account form.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/new</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code>, <code>subtype</code> (required); <code>kind</code>, <code>institution</code>, <code>last4</code>, <code>opening_balance</code>, <code>opening_date</code>, <code>statement_day</code>, <code>due_day</code>, <code>budget_id</code>, <code>visibility</code>; deposit terms as below</td><td>Create an account.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id</code></td><td><span class="pill pill--r">read</span></td><td><code>card</code> (one card's spending)</td><td>One account's register.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id</code></td><td><span class="pill pill--r">read</span></td><td><code>card</code> (one card’s spending)</td><td>One account’s register.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/edit</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>last4</code>, <code>statement_day</code>, <code>due_day</code>, <code>visibility</code></td><td>Rename an account or change its details.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/close</code><br><code>/accounts/:id/reopen</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Close an account (its history is untouched) or reopen it.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/deposit</code></td><td><span class="pill pill--w">read-write</span></td><td><code>deposit_kind</code> (<code>fd</code>, <code>rd</code>, <code>ppf</code>, <code>epf</code>, <code>other</code>), <code>deposit_principal</code>, <code>deposit_instalment</code>, <code>deposit_rate</code> (a percentage), <code>deposit_compounding</code>, <code>deposit_start_date</code>, <code>deposit_maturity_date</code>, <code>deposit_payout</code> (<code>cumulative</code> or <code>periodic</code>)</td><td>Set or change a deposit's terms, so it values itself. A fixed deposit, recurring deposit or other-asset tracking account only; refused (422) otherwise. A hand value dated on or after the basis still wins.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/deposit/remove</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Take a deposit's terms off; it is worth its balance again.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id/statement</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The card-statement form.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/close</code><br><code>/accounts/:id/reopen</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Close an account (its history is untouched) or reopen it.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/deposit</code></td><td><span class="pill pill--w">read-write</span></td><td><code>deposit_kind</code> (<code>fd</code>, <code>rd</code>, <code>ppf</code>, <code>epf</code>, <code>other</code>), <code>deposit_principal</code>, <code>deposit_instalment</code>, <code>deposit_rate</code> (a percentage), <code>deposit_compounding</code>, <code>deposit_start_date</code>, <code>deposit_maturity_date</code>, <code>deposit_payout</code> (<code>cumulative</code> or <code>periodic</code>)</td><td>Set or change a deposit’s terms, so it values itself. A fixed deposit, recurring deposit or other-asset tracking account only; refused (422) otherwise. A hand value dated on or after the basis still wins.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/deposit/remove</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Take a deposit’s terms off; it is worth its balance again.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id/statement</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The card-statement form.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/statement</code></td><td><span class="pill pill--w">read-write</span></td><td><code>amount</code>, <code>due_date</code> (required); <code>statement_date</code>, <code>minimum_due</code></td><td>Record a credit-card statement, so funding advice uses the real bill.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id/reconcile</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The reconcile screen.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id/reconcile</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The reconcile screen.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/reconcile</code></td><td><span class="pill pill--w">read-write</span></td><td><code>bank_balance</code>, <code>as_of</code>, <code>clear</code> (transaction ids, repeated), <code>allow_adjustment</code></td><td>Reconcile to a statement balance, clearing the transactions named. A difference is never guessed: it is shown, and booked as an adjustment only with <code>allow_adjustment=1</code>.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id/cards</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Cards on one account, including add-ons.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id/cards</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Cards on one account, including add-ons.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/cards</code></td><td><span class="pill pill--w">read-write</span></td><td><code>label</code> (required); <code>last4</code>, <code>holder_member_id</code></td><td>Add an add-on card to an account.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/cards/:cardId/close</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Close an add-on card. 404 unless the card is visible and on that account.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/cards/:cardId/close</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Close an add-on card. 404 unless the card is visible and on that account.</td></tr>
             </tbody>
           </table>
         </div>
@@ -487,25 +492,25 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>account_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>The account it happened on.</td></tr>
-                <tr><td><code>direction</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>in</code> or <code>out</code>. Defaults to <code>out</code>.</td></tr>
-                <tr><td><code>amount</code></td><td class="m">number</td><td><span class='req'>required</span></td><td>Rupees, always positive. Direction carries the sign.</td></tr>
-                <tr><td><code>date</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>YYYY-MM-DD</code>. Defaults to today.</td></tr>
-                <tr><td><code>category_id</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>One envelope for the whole amount. Money out needs this or the lines below.</td></tr>
-                <tr><td><code>split_category_N</code>, <code>split_amount_N</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Envelope lines, <code>N</code> from 0. Line 0 carries no amount and takes whatever the others leave.</td></tr>
-                <tr><td><code>payee</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Free text. Matched against known payees.</td></tr>
-                <tr><td><code>memo</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>A note for your own reference.</td></tr>
-                <tr><td><code>tags</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Comma-separated.</td></tr>
-                <tr><td><code>cleared</code></td><td class="m">boolean</td><td><span class='opt'>optional</span></td><td><code>1</code> when the bank has confirmed it.</td></tr>
-                <tr><td><code>owner_member_id</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Who spent it. A card with its own holder still wins.</td></tr>
-                <tr><td><code>confirm_checkpoint</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>1</code> answers the “Already reconciled” question.</td></tr>
+                <tr><td><code>account_id</code></td><td class="m">string</td><td><span class="req">required</span></td><td>The account it happened on.</td></tr>
+                <tr><td><code>direction</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>in</code> or <code>out</code>. Defaults to <code>out</code>.</td></tr>
+                <tr><td><code>amount</code></td><td class="m">number</td><td><span class="req">required</span></td><td>Rupees, always positive. Direction carries the sign.</td></tr>
+                <tr><td><code>date</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>YYYY-MM-DD</code>. Defaults to today.</td></tr>
+                <tr><td><code>category_id</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>One envelope for the whole amount. Money out needs this or the lines below.</td></tr>
+                <tr><td><code>split_category_N</code>, <code>split_amount_N</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Envelope lines, <code>N</code> from 0. Line 0 carries no amount and takes whatever the others leave.</td></tr>
+                <tr><td><code>payee</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Free text. Matched against known payees.</td></tr>
+                <tr><td><code>memo</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>A note for your own reference.</td></tr>
+                <tr><td><code>tags</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Comma-separated.</td></tr>
+                <tr><td><code>cleared</code></td><td class="m">boolean</td><td><span class="opt">optional</span></td><td><code>1</code> when the bank has confirmed it.</td></tr>
+                <tr><td><code>owner_member_id</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Who spent it. A card with its own holder still wins.</td></tr>
+                <tr><td><code>confirm_checkpoint</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>1</code> answers the “Already reconciled” question.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--ok"><b>200</b></span>: The “Already reconciled” question, as HTML. Nothing was saved.</li>
               <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
@@ -541,19 +546,19 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>from_account_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>Source account.</td></tr>
-                <tr><td><code>to_account_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>Destination account.</td></tr>
-                <tr><td><code>amount</code></td><td class="m">number</td><td><span class='req'>required</span></td><td>Rupees.</td></tr>
-                <tr><td><code>date</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>YYYY-MM-DD</code>. Defaults to today.</td></tr>
-                <tr><td><code>fee_amount</code></td><td class="m">number</td><td><span class='opt'>optional</span></td><td>A bank charge on the transfer, in rupees. Recorded as spending, and undone with it.</td></tr>
-                <tr><td><code>fee_category_id</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>The envelope the charge comes out of. Required with <code>fee_amount</code>.</td></tr>
+                <tr><td><code>from_account_id</code></td><td class="m">string</td><td><span class="req">required</span></td><td>Source account.</td></tr>
+                <tr><td><code>to_account_id</code></td><td class="m">string</td><td><span class="req">required</span></td><td>Destination account.</td></tr>
+                <tr><td><code>amount</code></td><td class="m">number</td><td><span class="req">required</span></td><td>Rupees.</td></tr>
+                <tr><td><code>date</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>YYYY-MM-DD</code>. Defaults to today.</td></tr>
+                <tr><td><code>fee_amount</code></td><td class="m">number</td><td><span class="opt">optional</span></td><td>A bank charge on the transfer, in rupees. Recorded as spending, and undone with it.</td></tr>
+                <tr><td><code>fee_category_id</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>The envelope the charge comes out of. Required with <code>fee_amount</code>.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
@@ -587,15 +592,15 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>id</code></td><td class="m">path</td><td><span class='req'>required</span></td><td>Transaction id.</td></tr>
-                <tr><td><code>category_id</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>The envelope it belongs to. Empty clears it.</td></tr>
+                <tr><td><code>id</code></td><td class="m">path</td><td><span class="req">required</span></td><td>Transaction id.</td></tr>
+                <tr><td><code>category_id</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>The envelope it belongs to. Empty clears it.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
@@ -629,15 +634,15 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>id</code></td><td class="m">path</td><td><span class='req'>required</span></td><td>Transaction id.</td></tr>
-                <tr><td><code>confirm_checkpoint</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>1</code> answers the “Already reconciled” question.</td></tr>
+                <tr><td><code>id</code></td><td class="m">path</td><td><span class="req">required</span></td><td>Transaction id.</td></tr>
+                <tr><td><code>confirm_checkpoint</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>1</code> answers the “Already reconciled” question.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--ok"><b>200</b></span>: The “Already reconciled” question, as HTML. Nothing was deleted.</li>
               <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
@@ -663,13 +668,13 @@
             <tbody>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/add</code></td><td><span class="pill pill--r">read</span></td><td><code>account</code></td><td>The Add form, with an account chosen when given.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/transfer</code></td><td><span class="pill pill--r">read</span></td><td><code>from</code>, <code>to</code>, <code>amount</code></td><td>The transfer form, filled in when given.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/transaction/:id</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>One transaction: its envelope lines, receipts and history.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/transaction/:id</code></td><td><span class="pill pill--w">read-write</span></td><td>the <code>/add</code> fields, <code>cleared_present</code>, <code>reimbursable_present</code>, <code>confirm_checkpoint</code></td><td>Edit a transaction. A field you do not send keeps its stored value, so <code>date=07-09-2026</code> alone moves only the date. An empty <code>memo</code> clears it, empty <code>tags</code> removes them, an empty <code>owner_member_id</code> makes it the household's; a blank <code>amount</code> is refused. <code>cleared=1</code> / <code>reimbursable=1</code> set a flag and any other value unsets it. Inside a reconciled period it asks first (200).</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/transaction/:id/settled</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Mark a reimbursable transaction as repaid.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/transaction/:id</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>One transaction: its envelope lines, receipts and history.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/transaction/:id</code></td><td><span class="pill pill--w">read-write</span></td><td>the <code>/add</code> fields, <code>cleared_present</code>, <code>reimbursable_present</code>, <code>confirm_checkpoint</code></td><td>Edit a transaction. A field you do not send keeps its stored value, so <code>date=07-09-2026</code> alone moves only the date. An empty <code>memo</code> clears it, empty <code>tags</code> removes them, an empty <code>owner_member_id</code> makes it the household’s; a blank <code>amount</code> is refused. <code>cleared=1</code> / <code>reimbursable=1</code> set a flag and any other value unsets it. Inside a reconciled period it asks first (200).</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/transaction/:id/settled</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Mark a reimbursable transaction as repaid.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/transaction/:id/attach</code></td><td><span class="pill pill--w">read-write</span></td><td><code>receipt</code> (a multipart file)</td><td>Attach a photo or PDF receipt.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/attachment/:id</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>A receipt's bytes, with its own content type.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/attachment/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Remove a receipt.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/transaction/:id/convert-to-emi</code></td><td><span class="pill pill--w">read-write</span></td><td><code>tenure_months</code>, <code>annual_rate</code> (required); <code>amount</code>, <code>processing_fee</code>, <code>fee_category_id</code>, <code>name_suffix</code></td><td>Convert a card purchase into an instalment plan. Each instalment's interest carries 18% GST as its own card charge.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/attachment/:id</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>A receipt’s bytes, with its own content type.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/attachment/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Remove a receipt.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/transaction/:id/convert-to-emi</code></td><td><span class="pill pill--w">read-write</span></td><td><code>tenure_months</code>, <code>annual_rate</code> (required); <code>amount</code>, <code>processing_fee</code>, <code>fee_category_id</code>, <code>name_suffix</code></td><td>Convert a card purchase into an instalment plan. Each instalment’s interest carries 18% GST as its own card charge.</td></tr>
             </tbody>
           </table>
         </div>
@@ -689,7 +694,7 @@
 
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
               <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
@@ -718,16 +723,16 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>account_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>Which account these rows belong to. Required, and checked, even for a YNAB or Actual Budget file.</td></tr>
-                <tr><td><code>csv</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>The raw CSV text.</td></tr>
-                <tr><td><code>file_name</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Shown in the import log. Defaults to <code>pasted.csv</code>.</td></tr>
+                <tr><td><code>account_id</code></td><td class="m">string</td><td><span class="req">required</span></td><td>Which account these rows belong to. Required, and checked, even for a YNAB or Actual Budget file.</td></tr>
+                <tr><td><code>csv</code></td><td class="m">string</td><td><span class="req">required</span></td><td>The raw CSV text.</td></tr>
+                <tr><td><code>file_name</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Shown in the import log. Defaults to <code>pasted.csv</code>.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--ok"><b>200</b></span>: The column-mapping screen, as HTML, when the file matches nothing known. Nothing was imported.</li>
               <li><span class="status status--ok"><b>200</b></span>: The account-matching screen, as HTML, for a YNAB or Actual Budget export. Nothing was imported.</li>
@@ -763,17 +768,17 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>csv</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>The export, as raw CSV text.</td></tr>
-                <tr><td><code>account_0</code>, <code>account_1</code>, …</td><td class="m">string</td><td><span class='req'>required</span></td><td>One per account in the file, in the order the screen lists them: an account id, or <code>skip</code> to leave it out.</td></tr>
-                <tr><td><code>date_order</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>dd-mm-yyyy</code> or <code>mm-dd-yyyy</code>. Needed only when every date in the file reads both ways round.</td></tr>
-                <tr><td><code>file_name</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Shown in the import log. Defaults to <code>budget-export.csv</code>.</td></tr>
+                <tr><td><code>csv</code></td><td class="m">string</td><td><span class="req">required</span></td><td>The export, as raw CSV text.</td></tr>
+                <tr><td><code>account_0</code>, <code>account_1</code>, …</td><td class="m">string</td><td><span class="req">required</span></td><td>One per account in the file, in the order the screen lists them: an account id, or <code>skip</code> to leave it out.</td></tr>
+                <tr><td><code>date_order</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>dd-mm-yyyy</code> or <code>mm-dd-yyyy</code>. Needed only when every date in the file reads both ways round.</td></tr>
+                <tr><td><code>file_name</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Shown in the import log. Defaults to <code>budget-export.csv</code>.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Imported. To <code>/review</code> when anything waits there, otherwise <code>/import</code>.</li>
               <li><span class="status status--ok"><b>200</b></span>: The account-matching screen again, as HTML, when every account was left out. Nothing was imported.</li>
               <li><span class="status status--err"><b>400</b></span>: Not a YNAB or Actual Budget export, a date that cannot be read, a missing <code>date_order</code>, or an account with no choice; the message says which.</li>
@@ -809,21 +814,21 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>account_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>Which account these rows belong to.</td></tr>
-                <tr><td><code>csv</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>The raw CSV text.</td></tr>
-                <tr><td><code>profile_name</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>What to call the saved mapping.</td></tr>
-                <tr><td><code>date</code>, <code>narration</code></td><td class="m">integer</td><td><span class='req'>required</span></td><td>Their column numbers.</td></tr>
-                <tr><td><code>amount</code>, or <code>debit</code> and <code>credit</code></td><td class="m">integer</td><td><span class='req'>required</span></td><td>One signed amount column, or a column each way.</td></tr>
-                <tr><td><code>direction</code>, <code>balance</code>, <code>reference</code></td><td class="m">integer</td><td><span class='opt'>optional</span></td><td>A Dr / Cr column that signs an unsigned amount, the running balance, the bank reference.</td></tr>
-                <tr><td><code>header_row</code></td><td class="m">integer</td><td><span class='opt'>optional</span></td><td>The row holding the headers. Defaults to 0.</td></tr>
-                <tr><td><code>date_format</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>How the dates are written: <code>auto</code> (the default), <code>dd-mm-yyyy</code>, <code>mm-dd-yyyy</code> or <code>yyyy-mm-dd</code>.</td></tr>
+                <tr><td><code>account_id</code></td><td class="m">string</td><td><span class="req">required</span></td><td>Which account these rows belong to.</td></tr>
+                <tr><td><code>csv</code></td><td class="m">string</td><td><span class="req">required</span></td><td>The raw CSV text.</td></tr>
+                <tr><td><code>profile_name</code></td><td class="m">string</td><td><span class="req">required</span></td><td>What to call the saved mapping.</td></tr>
+                <tr><td><code>date</code>, <code>narration</code></td><td class="m">integer</td><td><span class="req">required</span></td><td>Their column numbers.</td></tr>
+                <tr><td><code>amount</code>, or <code>debit</code> and <code>credit</code></td><td class="m">integer</td><td><span class="req">required</span></td><td>One signed amount column, or a column each way.</td></tr>
+                <tr><td><code>direction</code>, <code>balance</code>, <code>reference</code></td><td class="m">integer</td><td><span class="opt">optional</span></td><td>A Dr / Cr column that signs an unsigned amount, the running balance, the bank reference.</td></tr>
+                <tr><td><code>header_row</code></td><td class="m">integer</td><td><span class="opt">optional</span></td><td>The row holding the headers. Defaults to 0.</td></tr>
+                <tr><td><code>date_format</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>How the dates are written: <code>auto</code> (the default), <code>dd-mm-yyyy</code>, <code>mm-dd-yyyy</code> or <code>yyyy-mm-dd</code>.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span>: A column missing, or dates in both orders; the message says which.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
@@ -850,7 +855,7 @@
             <span class="ep__sum">Upload a statement PDF</span>
           </summary>
           <div class="ep__body">
-            <p>Multipart upload of a bank statement. The bank is recognised from its own layout, the file is decrypted in-process if it is password-protected, and the parse is checked against the statement's closing balance. A SafeGold statement is recognised too, and answers with the same review as <code>/portfolio/safegold</code>. A PDF no reader recognises answers with the column-mapping screen, and one that cannot be opened or read answers with the import screen saying why. Both answer as HTML, and nothing is imported.</p>
+            <p>Multipart upload of a bank statement. The bank is recognised from its own layout, the file is decrypted in-process if it is password-protected, and the parse is checked against the statement’s closing balance. A SafeGold statement is recognised too, and answers with the same review as <code>/portfolio/safegold</code>. A PDF no reader recognises answers with the column-mapping screen, and one that cannot be opened or read answers with the import screen saying why. Both answer as HTML, and nothing is imported.</p>
             <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
             <h3>Parameters</h3>
@@ -858,17 +863,17 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>statement</code></td><td class="m">file</td><td><span class='req'>required</span></td><td>The PDF, as multipart form data.</td></tr>
-                <tr><td><code>account_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>Which account it belongs to.</td></tr>
-                <tr><td><code>password</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Omit it to let the app derive it from your saved identity.</td></tr>
-                <tr><td><code>card_digits</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>The card number's last four or six digits, when the bank locks its statement with them and the app does not have them. The screen asks for them by name when that is what is missing. Once the file opens they are saved on the card's account (up to eight digits are kept), and never echoed back.</td></tr>
+                <tr><td><code>statement</code></td><td class="m">file</td><td><span class="req">required</span></td><td>The PDF, as multipart form data.</td></tr>
+                <tr><td><code>account_id</code></td><td class="m">string</td><td><span class="req">required</span></td><td>Which account it belongs to.</td></tr>
+                <tr><td><code>password</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Omit it to let the app derive it from your saved identity.</td></tr>
+                <tr><td><code>card_digits</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>The card number’s last four or six digits, when the bank locks its statement with them and the app does not have them. The screen asks for them by name when that is what is missing. Once the file opens they are saved on the card’s account (up to eight digits are kept), and never echoed back.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--ok"><b>200</b></span>: The mapping or import screen, as HTML, when the file could not be imported as it is.</li>
               <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
@@ -903,15 +908,15 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>batch_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>From the import log.</td></tr>
-                <tr><td><code>confirm_checkpoint</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>1</code> answers the “Already reconciled” question.</td></tr>
+                <tr><td><code>batch_id</code></td><td class="m">string</td><td><span class="req">required</span></td><td>From the import log.</td></tr>
+                <tr><td><code>confirm_checkpoint</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>1</code> answers the “Already reconciled” question.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--ok"><b>200</b></span>: The “Already reconciled” question, as HTML. Nothing was undone.</li>
               <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
@@ -938,16 +943,16 @@
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/approve</code></td><td><span class="pill pill--w">read-write</span></td><td><code>staged_id</code> (required); <code>category_id</code>, <code>confirm_checkpoint</code></td><td>Post a staged row, filed into the envelope given. Inside a reconciled period it asks first (200).</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/merge</code></td><td><span class="pill pill--w">read-write</span></td><td><code>staged_id</code> (required); <code>confirm_checkpoint</code></td><td>Merge a staged row into the transaction you already had. Inside a reconciled period it asks first (200).</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/reject</code></td><td><span class="pill pill--w">read-write</span></td><td><code>staged_id</code> (required)</td><td>Dismiss a staged row.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/ai/:id/approve</code><br><code>/review/ai/:id/reject</code></td><td><span class="pill pill--w">read-write</span></td><td>&mdash;</td><td>Decide on a change one of your own AI connections suggested (<a href="#ai-changes">below</a>). Approving makes it as you; another member&rsquo;s suggestion is 404. An AI connection&rsquo;s own token cannot reach these.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/import</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The import screen: paste, upload, saved mappings and the import log.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/import/profiles/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Forget a saved column mapping.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/rules</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Rules, and rules the app proposes from what you file.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/ai/:id/approve</code><br><code>/review/ai/:id/reject</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Decide on a change one of your own AI connections suggested (<a href="#ai-changes">below</a>). Approving makes it as you; another member&rsquo;s suggestion is 404. An AI connection&rsquo;s own token cannot reach these.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/import</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The import screen: paste, upload, saved mappings and the import log.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/import/profiles/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Forget a saved column mapping.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/rules</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Rules, and rules the app proposes from what you file.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/rules/test</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code>, <code>field</code>, <code>op</code>, <code>value</code>, <code>category_id</code></td><td>Show what a draft rule would match among recent transactions. Saves nothing. An unknown field or test is 422.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/rules/new</code></td><td><span class="pill pill--w">read-write</span></td><td>the same as <code>/rules/test</code></td><td>Save a rule. It applies to anything imported from then on.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/rules/:id/apply</code></td><td><span class="pill pill--w">read-write</span></td><td><code>confirm</code></td><td>Without <code>confirm=1</code>, a preview (200) of what it would change in your history; with it, apply it.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/rules/confirm</code><br><code>/rules/dismiss</code></td><td><span class="pill pill--w">read-write</span></td><td><code>rule_id</code> (required)</td><td>Accept or dismiss a proposed rule.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/rules/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Delete a rule.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/payees</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Payees, with how often and how much.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/rules/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Delete a rule.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/payees</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Payees, with how often and how much.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/payees/merge</code></td><td><span class="pill pill--w">read-write</span></td><td><code>loser_id</code>, <code>winner_id</code> (required)</td><td>Merge one payee into another; every raw string comes across.</td></tr>
             </tbody>
           </table>
@@ -962,7 +967,7 @@
             <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
             <tbody>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/household</code></td><td><span class="pill pill--r">read</span></td><td><code>month</code></td><td>What each member has committed to the shared budget this month.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/household/pick-up</code></td><td><span class="pill pill--w">read-write</span></td><td><code>envelope_id</code>, <code>amount</code> (required); <code>month</code></td><td>Commit more from your own household envelope. Another budget's envelope is 403; a non-positive amount is 422.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/household/pick-up</code></td><td><span class="pill pill--w">read-write</span></td><td><code>envelope_id</code>, <code>amount</code> (required); <code>month</code></td><td>Commit more from your own household envelope. Another budget’s envelope is 403; a non-positive amount is 422.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/household/call-it-even</code></td><td><span class="pill pill--w">read-write</span></td><td><code>envelope_id</code>, <code>amount</code> (required); <code>giving_category_id</code>, <code>note</code>, <code>month</code></td><td>Close part of a balance by agreement; it becomes spending on the giving side.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/categories</code></td><td><span class="pill pill--r">read</span></td><td><code>budget</code></td><td>Categories and groups for the budget being viewed.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/groups/new</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required)</td><td>Add a category group to the budget being viewed.</td></tr>
@@ -972,7 +977,7 @@
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/hide</code></td><td><span class="pill pill--w">read-write</span></td><td><code>hidden</code></td><td><code>hidden=1</code> hides it, keeping its balance and history; anything else unhides it.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td><code>remap_to</code></td><td>Delete a category, moving its history to <code>remap_to</code>.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/merge</code></td><td><span class="pill pill--w">read-write</span></td><td><code>winner_id</code> (required)</td><td>Merge into another category: assignments summed month by month, history and targets moved across. Refuses a payment category and a merge across budgets.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/target</code></td><td><span class="pill pill--w">read-write</span></td><td><code>amount</code>, <code>kind</code> (<code>monthly</code> or <code>refill</code>), <code>target_date</code></td><td>Set or clear a category's target. A date makes it a by-date target; an empty amount removes it.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/target</code></td><td><span class="pill pill--w">read-write</span></td><td><code>amount</code>, <code>kind</code> (<code>monthly</code> or <code>refill</code>), <code>target_date</code></td><td>Set or clear a category’s target. A date makes it a by-date target; an empty amount removes it.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/reorder</code><br><code>/groups/:id/reorder</code></td><td><span class="pill pill--w">read-write</span></td><td><code>direction</code></td><td>Move a category or group up or down.</td></tr>
             </tbody>
           </table>
@@ -987,50 +992,50 @@
             <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
             <tbody>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/schedules</code></td><td><span class="pill pill--r">read</span></td><td><code>days</code> (1 to 3650; default 60), <code>budget</code></td><td>Recurring items and the cashflow calendar. More than 3650 days is 422.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/schedules/new</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The new-schedule form.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/schedules/new</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The new-schedule form.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/new</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>amount</code>, <code>direction</code>, <code>account_id</code>, <code>category_id</code> or envelope lines, <code>recurrence</code>, <code>recurrence_ordinal</code>, <code>recurrence_weekday</code>, <code>next_due</code>, <code>is_subscription</code></td><td>Add a schedule, money in or out. An unknown <code>recurrence</code> is refused, not read as monthly. With <code>monthly-nth-weekday</code>, the ordinal (1 to 4, or −1 for last) and weekday (0 = Sunday) say which day.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/confirm</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>amount</code> (paise), <code>payee_id</code>, <code>account_id</code>, <code>category_id</code>, <code>recurrence</code>, <code>next_due</code></td><td>Turn a detected schedule into a real one. An amount the suggestion could not have made is 422.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/dismiss</code></td><td><span class="pill pill--w">read-write</span></td><td><code>payee_id</code> (required)</td><td>Stop suggesting that schedule.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/:id/edit</code></td><td><span class="pill pill--w">read-write</span></td><td>the <code>/schedules/new</code> fields</td><td>Change a schedule, including its envelope lines.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Remove a schedule. Everything it already recorded stays.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/:id/paid</code><br><code>/schedules/:id/skip</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Mark this occurrence paid (or arrived), or skip it.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/goals</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Savings goals.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Remove a schedule. Everything it already recorded stays.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/:id/paid</code><br><code>/schedules/:id/skip</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Mark this occurrence paid (or arrived), or skip it.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/goals</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Savings goals.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/goals/new</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>target_amount</code>, <code>target_date</code>, <code>budget_id</code></td><td>Add a goal.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/goals/:id/edit</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>target_amount</code>, <code>target_date</code></td><td>Change a goal.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/goals/:id/complete</code></td><td><span class="pill pill--w">read-write</span></td><td><code>resolution</code> (<code>spend</code>, <code>roll</code> or <code>release</code>); with <code>roll</code>: <code>name</code>, <code>target_amount</code>, <code>target_date</code></td><td>Complete a goal, saying what happens to its money.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/goals/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Delete a goal.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/loans</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Loans.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/loans/:id</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>One loan: schedule, payments, interest.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/goals/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Delete a goal.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/loans</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Loans.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/loans/:id</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>One loan: schedule, payments, interest.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/new</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>lender</code>, <code>loan_type</code>, <code>annual_rate</code>, <code>tenure_months</code> (required); <code>sanctioned</code>, <code>sanction_date</code>, <code>current_outstanding</code>, <code>history_from</code>, <code>first_instalment_date</code>, <code>interest_model</code>, <code>moratorium_months</code>, <code>nickname</code>, <code>holder_member_id</code>, <code>visibility</code>, <code>disbursement_destination</code>, <code>disbursement_account_id</code>, <code>repayment_account_id</code></td><td>The form, and creating a loan.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/what-if</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>rate</code>, <code>months</code> (required on POST); <code>principal</code>, <code>amount</code>, <code>at_month</code></td><td>Prepayment and rate what-if. Records nothing.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/disburse</code></td><td><span class="pill pill--w">read-write</span></td><td><code>amount</code> (required); <code>date</code>, <code>destination</code>, <code>destination_account_id</code></td><td>Record a tranche drawn down.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/:id/pay</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>amount</code>, <code>principal</code>, <code>interest</code>, <code>date</code>, <code>from_account_id</code></td><td>Record an instalment.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/:id/prepay</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>amount</code>, <code>at_month</code>, <code>mode</code>, <code>charge</code>, <code>funding_category_id</code>, <code>preview</code></td><td>Preview or record a prepayment.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/:id/rate</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>effective_from</code>, <code>annual_rate_pct</code> (required on POST); <code>keep</code>, <code>note</code></td><td>Preview both options a rate reset allows, then record one.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/:id/statement</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>lender_outstanding</code> (required); <code>as_of</code>, <code>interest_paid_ytd</code>, <code>instalments_remaining</code></td><td>Record what the lender's statement says, to check the schedule against. A negative figure is 422.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/:id/statement</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>lender_outstanding</code> (required); <code>as_of</code>, <code>interest_paid_ytd</code>, <code>instalments_remaining</code></td><td>Record what the lender’s statement says, to check the schedule against. A negative figure is 422.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/holder</code></td><td><span class="pill pill--w">read-write</span></td><td><code>holder_member_id</code>, <code>visibility</code></td><td>Change whose loan it is and whether it is private.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/property</code></td><td><span class="pill pill--w">read-write</span></td><td><code>property_use</code> (<code>self-occupied</code>, <code>let-out</code>, or empty)</td><td>What the house the loan paid for is used for. A self-occupied house's accrued interest goes into its holder's tax estimate under 24(b); let-out is shown, not deducted.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/settle</code></td><td><span class="pill pill--w">read-write</span></td><td><code>settlement</code>, <code>settlement_account_id</code>, <code>charge</code>, <code>charge_account_id</code>, <code>charge_category_id</code></td><td>Settle a loan early, recording the lender's foreclosure charge.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/close</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>File away a paid-off loan.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/loans/:id/schedule.csv</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The amortisation schedule, as CSV.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/property</code></td><td><span class="pill pill--w">read-write</span></td><td><code>property_use</code> (<code>self-occupied</code>, <code>let-out</code>, or empty)</td><td>What the house the loan paid for is used for. A self-occupied house’s accrued interest goes into its holder’s tax estimate under 24(b); let-out is shown, not deducted.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/settle</code></td><td><span class="pill pill--w">read-write</span></td><td><code>settlement</code>, <code>settlement_account_id</code>, <code>charge</code>, <code>charge_account_id</code>, <code>charge_category_id</code></td><td>Settle a loan early, recording the lender’s foreclosure charge.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/close</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>File away a paid-off loan.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/loans/:id/schedule.csv</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The amortisation schedule, as CSV.</td></tr>
             </tbody>
           </table>
         </div>
       </section>
       <section class="api-group" id="family">
         <h2>Family lending</h2>
-        <p>Money lent to or borrowed from family, kept separate from the budget's envelopes. A private arrangement answers 404 to anyone but its holder.</p>
+        <p>Money lent to or borrowed from family, kept separate from the budget’s envelopes. A private arrangement answers 404 to anyone but its holder.</p>
         <h3 class="sr-only">More family lending routes</h3>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
             <tbody>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/family</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Everything lent and borrowed.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/family</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Everything lent and borrowed.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/family/:id</code></td><td><span class="pill pill--r">read</span></td><td><code>confirm</code> (<code>write-off</code> shows the write-off question)</td><td>One arrangement and its history.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/family/new</code></td><td><span class="pill pill--w">read-write</span></td><td><code>counterparty</code> (required); <code>agreed_total</code>, <code>note</code>, <code>holder_member_id</code>, <code>visibility</code></td><td>Start an arrangement.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/family/:id/advance</code><br><code>/family/:id/repayment</code></td><td><span class="pill pill--w">read-write</span></td><td><code>amount</code>, <code>account_id</code> (required); <code>date</code></td><td>Record money going out, or coming back.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/family/:id/write-off</code></td><td><span class="pill pill--w">read-write</span></td><td><code>category_id</code> (required); <code>confirm</code></td><td>Write off what is left, as spending from an envelope. Asks first without <code>confirm=1</code>.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/family/:id/close</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Close it, keeping the history.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/family/:id/close</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Close it, keeping the history.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1043,8 +1048,8 @@
           <table>
             <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
             <tbody>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Holdings, XIRR and other assets.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/:id</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>One instrument: lots, prices and gains.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Holdings, XIRR and other assets.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/:id</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>One instrument: lots, prices and gains.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/add</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td>GET: <code>q</code>, <code>instrument</code>, <code>account</code>. POST: <code>name</code>, <code>account_id</code> (required); <code>instrument_id</code>, <code>scheme_code</code>, <code>symbol</code>, <code>kind</code>, <code>currency</code>, <code>listed</code>, <code>units</code>, <code>unit_price</code>, <code>amount</code>, <code>fees</code>, <code>fx_rate</code>, <code>trade_date</code>, <code>from_account_id</code>, <code>category_id</code></td><td>Search for an instrument and buy it.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/:id/sell</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>units</code> (required); <code>price</code>, <code>charges</code>, <code>fx_rate</code>, <code>date</code>, <code>to_account_id</code></td><td>Record a sale, realised first in, first out.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/cas</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>statement</code> (multipart PDF), <code>account_id</code> (required); <code>password</code></td><td>Read a CDSL consolidated account statement and show what it found.</td></tr>
@@ -1052,20 +1057,20 @@
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/safegold</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>statement</code> (multipart PDF, required); <code>password</code></td><td>Read a SafeGold statement (digital gold) and show what it would record: each buy as a lot with its GST in the cost, each sell as a realised gain, checked against the statement&rsquo;s closing gold balance. Nothing is written yet.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/safegold/review</code></td><td><span class="pill pill--r">read</span></td><td><code>token</code></td><td>The review of a SafeGold statement a Gmail fetch read.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/safegold/confirm</code></td><td><span class="pill pill--w">read-write</span></td><td><code>token</code> (required); <code>accept_mismatch</code></td><td>Record a parsed SafeGold statement. Rows already recorded add nothing; one whose rows miss its closing balance is refused unless <code>accept_mismatch=1</code>. Undoes as one import.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/allocation</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Allocation by class, region and currency.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/instrument/:id/classify</code></td><td><span class="pill pill--w">read-write</span></td><td><code>asset_class</code></td><td>Set an instrument's asset class.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/allocation</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Allocation by class, region and currency.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/instrument/:id/classify</code></td><td><span class="pill pill--w">read-write</span></td><td><code>asset_class</code></td><td>Set an instrument’s asset class.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/instrument/:id/listed</code></td><td><span class="pill pill--w">read-write</span></td><td><code>listed</code>, <code>holding_id</code></td><td>Say whether a bond is listed. Listed and held over 12 months is taxed at 12.5%; unlisted or unknown at the slab rate.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/:id/price</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>price</code>, <code>as_of</code></td><td>Record a price for one instrument.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/:id/split</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>ratio</code> (required); <code>kind</code>, <code>date</code></td><td>Record a split or bonus issue, for every open holding. The same action on the same date is refused a second time.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/:id/merge</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>ratio</code> (required); <code>into_instrument_id</code>, <code>date</code></td><td>Record a merger or scheme amalgamation. Cost and purchase dates carry forward.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/refresh</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Fetch fresh prices, at most once every five minutes; a press sooner fetches nothing and says when prices were last refreshed. On the demo it fetches nothing and shows the prices from the scheduled runs.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/refresh</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Fetch fresh prices, at most once every five minutes; a press sooner fetches nothing and says when prices were last refreshed. On the demo it fetches nothing and shows the prices from the scheduled runs.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/asset/new</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>name</code>, <code>subtype</code> (required); <code>value</code>, <code>as_of</code>, <code>holder_member_id</code>, <code>visibility</code>, <code>paid_from</code>, <code>paid_category</code></td><td>Add a hand-valued asset.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/asset/:id/add</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>spent</code> (required); <code>on</code>, <code>paid_from</code>, <code>paid_category</code>, <code>new_value</code></td><td>Buy more of a hand-valued asset: the payment leaving an account and the new value.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/asset/:id/dispose</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>proceeds</code>, <code>on</code>, <code>into_account</code>, <code>remaining</code></td><td>Record that an asset is gone, and any money arriving. Values it at zero and closes the account; the history stays.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/asset/:id/revalue</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>value</code> (required); <code>as_of</code></td><td>Say what one asset is worth.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/valuations</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>value-&lt;id&gt;</code>, <code>asof-&lt;id&gt;</code> per asset</td><td>Update every hand-valued asset in one sitting. Blank ones are left alone.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/net-worth</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Net worth by group (including money owed to family and other liabilities), with a change breakdown that adds up to the total.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/net-worth/snapshot</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Take a dated snapshot.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/net-worth</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Net worth by group (including money owed to family and other liabilities), with a change breakdown that adds up to the total.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/net-worth/snapshot</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Take a dated snapshot.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/fire</code></td><td><span class="pill pill--r">read</span></td><td><code>age</code>, <code>swr</code>, <code>ret</code>, <code>locked</code>, <code>whose</code></td><td>Financial-independence projection from trailing spending.</td></tr>
             </tbody>
           </table>
@@ -1079,19 +1084,19 @@
           <table>
             <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
             <tbody>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/insurance</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The register.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/insurance/:id</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>One policy.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/insurance</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The register.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/insurance/:id</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>One policy.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/insurance/new</code><br><code>/insurance/:id/edit</code></td><td><span class="pill pill--w">read-write</span></td><td><code>insurer</code> (required); <code>kind</code>, <code>policy_number</code>, <code>sum_assured</code>, <code>premium</code>, <code>frequency</code>, <code>next_due</code>, <code>start_date</code>, <code>end_date</code>, <code>nominee</code>, <code>covered</code>, <code>tax_group</code>, <code>senior</code>, <code>category_id</code>, <code>holder_member_id</code>, <code>visibility</code>, <code>note</code></td><td>Record or change a policy.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/insurance/:id/paid</code></td><td><span class="pill pill--w">read-write</span></td><td><code>back</code></td><td>Move the next due date on by the premium frequency. Posts no transaction.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/insurance/:id/status</code></td><td><span class="pill pill--w">read-write</span></td><td><code>status</code> (<code>lapsed</code>, <code>ended</code> or <code>active</code>)</td><td>Change a policy's status. A lapsed or ended policy is kept.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/insurance/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Remove a policy recorded by mistake (undoable from Activity).</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/insurance/:id/status</code></td><td><span class="pill pill--w">read-write</span></td><td><code>status</code> (<code>lapsed</code>, <code>ended</code> or <code>active</code>)</td><td>Change a policy’s status. A lapsed or ended policy is kept.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/insurance/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Remove a policy recorded by mistake (undoable from Activity).</td></tr>
             </tbody>
           </table>
         </div>
       </section>
       <section class="api-group" id="tax">
         <h2>Tax</h2>
-        <p>An income-tax estimate for the signed-in member and one financial year. It is always your own, never another member's.</p>
+        <p>An income-tax estimate for the signed-in member and one financial year. It is always your own, never another member’s.</p>
         <h3 class="sr-only">More tax routes</h3>
         <div class="table-scroll">
           <table>
@@ -1100,7 +1105,7 @@
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/tax</code></td><td><span class="pill pill--r">read</span></td><td><code>fy</code> (the year it starts, e.g. <code>2026</code>), <code>from</code> (<code>policies</code> fills 80C/80D from the insurance register)</td><td>The estimate: slab tax, capital gains, 24(b) home-loan interest, TDS and challans netted to a balance or refund, and advance-tax instalments checked against what was paid by each date.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tax</code></td><td><span class="pill pill--w">read-write</span></td><td><code>fy</code> (required); <code>gross</code>, <code>s80c</code>, <code>s80d</code>, <code>s80d_senior</code>, <code>s80d_parents</code>, <code>s80d_parents_senior</code>, <code>s80d_checkup</code>, <code>s80d_parents_checkup</code>, <code>other</code>, <code>hra_received</code>, <code>hra_rent</code>, <code>hra_basic</code>, <code>hra_metro</code>, <code>s24b</code>, <code>tds</code></td><td>Save the declaration. A blank <code>s24b</code> uses the interest accrued on loans marked self-occupied; a figure, even 0, is yours. A year whose rates the app does not have is refused.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tax/payments</code></td><td><span class="pill pill--w">read-write</span></td><td><code>fy</code>, <code>kind</code> (<code>advance</code> or <code>self-assessment</code>), <code>date</code>, <code>amount</code>, <code>note</code></td><td>Record a tax payment of your own. Advance tax must be dated inside its year.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tax/payments/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Remove one. Another member's payment is not found.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tax/payments/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Remove one. Another member’s payment is not found.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1123,19 +1128,19 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>period</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>this-month</code> (the default), <code>last-month</code>, <code>last-3</code>, <code>last-12</code>, <code>fy</code>, <code>fy-prev</code> or <code>calendar</code>.</td></tr>
-                <tr><td><code>category</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Restrict to one envelope, by id.</td></tr>
-                <tr><td><code>account</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Restrict to one account, by id.</td></tr>
-                <tr><td><code>q</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Substring match on payee, memo, envelope, tags and the raw imported text.</td></tr>
-                <tr><td><code>scope</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>A budget id, or <code>all</code> (the default).</td></tr>
-                <tr><td><code>group_by</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>category</code> (the default), <code>payee</code>, <code>account</code>, <code>owner</code>, <code>month</code> or <code>tag</code>.</td></tr>
+                <tr><td><code>period</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>this-month</code> (the default), <code>last-month</code>, <code>last-3</code>, <code>last-12</code>, <code>fy</code>, <code>fy-prev</code> or <code>calendar</code>.</td></tr>
+                <tr><td><code>category</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Restrict to one envelope, by id.</td></tr>
+                <tr><td><code>account</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Restrict to one account, by id.</td></tr>
+                <tr><td><code>q</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Substring match on payee, memo, envelope, tags and the raw imported text.</td></tr>
+                <tr><td><code>scope</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>A budget id, or <code>all</code> (the default).</td></tr>
+                <tr><td><code>group_by</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>category</code> (the default), <code>payee</code>, <code>account</code>, <code>owner</code>, <code>month</code> or <code>tag</code>.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
               <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
@@ -1163,14 +1168,14 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>…</code></td><td class="m"></td><td><span class='opt'>optional</span></td><td>Accepts every parameter <code>/query</code> does.</td></tr>
+                <tr><td><code>…</code></td><td class="m"></td><td><span class="opt">optional</span></td><td>Accepts every parameter <code>/query</code> does.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: <code>text/csv</code>.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
             </ul>
@@ -1188,8 +1193,8 @@
             <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
             <tbody>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/search</code></td><td><span class="pill pill--r">read</span></td><td>the <code>/query</code> parameters</td><td>The same table, titled Search.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/months</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Month-close history.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/months/:month/close</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The close ritual for one month.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/months</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Month-close history.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/months/:month/close</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The close ritual for one month.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/months/:month/close</code></td><td><span class="pill pill--w">read-write</span></td><td><code>note</code>, <code>budget</code></td><td>Close a month. Not a month is 404.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/months/:month/reopen</code></td><td><span class="pill pill--w">read-write</span></td><td><code>budget</code></td><td>Reopen a closed month.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/reports</code></td><td><span class="pill pill--r">read</span></td><td><code>period</code> (default <code>last-12</code>), <code>scope</code></td><td>Income against spending, trends and loan interest.</td></tr>
@@ -1199,7 +1204,7 @@
       </section>
       <section class="api-group" id="settings">
         <h2>Settings, activity &amp; health</h2>
-        <p>Preferences, the change log and the instance's own health.</p>
+        <p>Preferences, the change log and the instance’s own health.</p>
         <details class="ep">
           <summary>
             <span class="verb verb--get">GET</span>
@@ -1215,15 +1220,15 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>entity</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Only changes to one kind of record, such as <code>transaction</code>.</td></tr>
-                <tr><td><code>source</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>ai</code>: only the changes AI connections made, or that a member approved from one.</td></tr>
+                <tr><td><code>entity</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td>Only changes to one kind of record, such as <code>transaction</code>.</td></tr>
+                <tr><td><code>source</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>ai</code>: only the changes AI connections made, or that a member approved from one.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
               <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
@@ -1251,16 +1256,16 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>id</code></td><td class="m">path</td><td><span class='req'>required</span></td><td>Event id from Activity.</td></tr>
-                <tr><td><code>force</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>1</code> undoes it even though the record has changed since.</td></tr>
-                <tr><td><code>confirm_checkpoint</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>1</code> answers the “Already reconciled” question.</td></tr>
+                <tr><td><code>id</code></td><td class="m">path</td><td><span class="req">required</span></td><td>Event id from Activity.</td></tr>
+                <tr><td><code>force</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>1</code> undoes it even though the record has changed since.</td></tr>
+                <tr><td><code>confirm_checkpoint</code></td><td class="m">string</td><td><span class="opt">optional</span></td><td><code>1</code> answers the “Already reconciled” question.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--redir"><b>303</b></span>: Undone.</li>
               <li><span class="status status--ok"><b>200</b></span>: The “Already reconciled” question, as HTML. Nothing was undone.</li>
               <li><span class="status status--err"><b>404</b></span>: No such change, or one you cannot see.</li>
@@ -1287,7 +1292,7 @@
 
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: <code>application/json</code>, <code>{&quot;status&quot;:&quot;ok&quot;,&quot;serving&quot;:true,&quot;version&quot;:…}</code>.</li>
               <li><span class="status status--err"><b>503</b></span>: Started, but the database does not answer.</li>
             </ul>
@@ -1303,18 +1308,18 @@
           <table>
             <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
             <tbody>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/settings</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Household and personal settings.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/settings</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Household and personal settings.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/theme</code></td><td><span class="pill pill--w">read-write</span></td><td><code>theme</code> (<code>light</code>, <code>dark</code>, <code>system</code>), <code>return_to</code></td><td>Set your theme. Anything else is 400.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/theme-toggle</code></td><td><span class="pill pill--w">read-write</span></td><td><code>seen</code>, <code>return_to</code></td><td>Flip between light and dark, returning to a same-site path.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/learning</code></td><td><span class="pill pill--w">read-write</span></td><td><code>enabled</code></td><td><code>enabled=1</code> suggests rules from what you file; anything else stops new suggestions. Confirmed rules keep working.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/overspend-model</code></td><td><span class="pill pill--w">read-write</span></td><td><code>model</code> (<code>reduce-rta</code> or <code>carry-negative</code>)</td><td>How cash overspending carries into the next month. Recomputes the history; anything else is 400.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/identity</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>pan</code>, <code>dob</code>, <code>mobile</code>, <code>customer_id_axis</code>, <code>customer_id_hdfc</code>, <code>hsbc_card_last6</code>; or <code>clear=1</code></td><td>Save or clear the details statement passwords are derived from. Never exported or logged. Refused on the demo.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/digest</code></td><td><span class="pill pill--w">read-write</span></td><td><code>kind</code> (repeated)</td><td>Which digest notices you want; the rest are muted.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/health</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The health dashboard, as HTML.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/health/backup</code><br><code>/health/verify</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Run a backup now, or verify that the latest restores. No new backup is taken within ten minutes of the newest one.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/fetch</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Fetch statements from the linked Gmail now. 403 while viewing as another member; 400 or 502 when Google refuses or cannot be reached.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/health</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The health dashboard, as HTML.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/health/backup</code><br><code>/health/verify</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Run a backup now, or verify that the latest restores. No new backup is taken within ten minutes of the newest one.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/fetch</code></td><td><span class="pill pill--w">read-write</span></td><td class="none">None</td><td>Fetch statements from the linked Gmail now. 403 while viewing as another member; 400 or 502 when Google refuses or cannot be reached.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/card-digits</code></td><td><span class="pill pill--w">read-write</span></td><td><code>account_id</code>, <code>card_digits</code></td><td>Save a card account&rsquo;s last four to eight digits, offered after a fetch left its statement locked for want of them. Never echoed; the notice shows the last two.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/privacy</code><br><code>/terms</code></td><td><span class="pill">public</span></td><td>—</td><td>The privacy policy and terms of this instance.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/privacy</code><br><code>/terms</code></td><td><span class="pill">public</span></td><td class="none">None</td><td>The privacy policy and terms of this instance.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1329,12 +1334,12 @@
             <span class="ep__sum">Export everything</span>
           </summary>
           <div class="ep__body">
-            <p>The complete dataset you can see, in an open format: accounts, transactions, assignments, lots, loans and events. It is not a summary, but another member's private accounts and envelopes, and what is recorded in them, are left out. The statement identity and any Gmail refresh token are excluded, and a test asserts their absence.</p>
+            <p>The complete dataset you can see, in an open format: accounts, transactions, assignments, lots, loans and events. It is not a summary, but another member’s private accounts and envelopes, and what is recorded in them, are left out. The statement identity and any Gmail refresh token are excluded, and a test asserts their absence.</p>
             <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
 
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: <code>application/json</code>, sent as a download.</li>
             </ul>
           </div>
@@ -1350,9 +1355,9 @@
           <table>
             <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
             <tbody>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/export.csv</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Every transaction you can see, as CSV.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/holdings.csv</code><br><code>/portfolio/lots.csv</code><br><code>/portfolio/prices.csv</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Holdings, first-in-first-out lots, and price history. 404 when <code>FEATURE_ASSETS</code> is off.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/net-worth.csv</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The dated net-worth history.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/export.csv</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Every transaction you can see, as CSV.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/holdings.csv</code><br><code>/portfolio/lots.csv</code><br><code>/portfolio/prices.csv</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>Holdings, first-in-first-out lots, and price history. 404 when <code>FEATURE_ASSETS</code> is off.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/net-worth.csv</code></td><td><span class="pill pill--r">read</span></td><td class="none">None</td><td>The dated net-worth history.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1372,14 +1377,14 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>months</code></td><td class="m">integer</td><td><span class='opt'>optional</span></td><td>How many months of budget and spending, 1 to 36. Default 12.</td></tr>
+                <tr><td><code>months</code></td><td class="m">integer</td><td><span class="opt">optional</span></td><td>How many months of budget and spending, 1 to 36. Default 12.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: <code>application/json</code>, sent as a download.</li>
               <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
             </ul>
@@ -1395,7 +1400,7 @@
       <section class="api-group" id="ai">
         <h2>Connect an AI (MCP)</h2>
         <p>Pathayam is its own <a href="https://modelcontextprotocol.io" rel="noopener noreferrer">Model Context Protocol</a> server, at <code>/mcp</code> on your own address. Claude, ChatGPT, Gemini and any other MCP client can call its tools to answer questions from your figures. There is no separate process, and nothing is sent anywhere until a member connects an app. Every route in this section and the next answers 404 when <code>FEATURE_AI</code> is off.</p>
-        <div class="note" style="margin-bottom:1.25rem"><b>Read-only unless allowed, and always as the member.</b> With <code>AI_WRITE</code> off, the default, no tool writes and every connection&rsquo;s token is read-scope; where it is on, only a connection the member allowed to make changes is offered the <a href="#ai-changes">change tools</a>. A connection sees what the member who connected it sees: the household budget and their own personal budget. Another member&rsquo;s private accounts, loans, policies and envelopes are never listed, counted or totalled, and an id it may not see is &ldquo;not found&rdquo;, the same as one that does not exist. Whatever a tool returns is sent to that AI&rsquo;s provider.</div>
+        <div class="note"><b>Read-only unless allowed, and always as the member.</b> With <code>AI_WRITE</code> off, the default, no tool writes and every connection&rsquo;s token is read-scope; where it is on, only a connection the member allowed to make changes is offered the <a href="#ai-changes">change tools</a>. A connection sees what the member who connected it sees: the household budget and their own personal budget. Another member&rsquo;s private accounts, loans, policies and envelopes are never listed, counted or totalled, and an id it may not see is &ldquo;not found&rdquo;, the same as one that does not exist. Whatever a tool returns is sent to that AI&rsquo;s provider.</div>
         <details class="ep" open>
           <summary>
             <span class="verb verb--post">POST</span>
@@ -1436,7 +1441,7 @@
           </div>
           <div>
             <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+            <ul class="resp">
               <li><span class="status status--ok"><b>200</b></span>: <code>application/json</code>, a JSON-RPC result or error.</li>
               <li><span class="status status--ok"><b>202</b></span>: A notification, accepted.</li>
               <li><span class="status status--err"><b>400</b></span>: A protocol version the server does not speak (the error lists those it does), or headers that do not match the body.</li>
@@ -1456,7 +1461,7 @@
             </div>
           </div>
         </details>
-        <h3 style="margin-top:1.5rem">Tools</h3>
+        <h3>Tools</h3>
         <p>Seventeen reads, offered to every connection; the change tools are <a href="#ai-changes">below</a>. Money is rupees as decimal numbers, dates are <code>YYYY-MM-DD</code> in IST, and a financial year is named by its first year (<code>2026</code> is FY 2026-27). Each tool calls the same query a screen does, so a figure an AI quotes is the figure on the page.</p>
         <div class="table-scroll">
           <table>
@@ -1464,32 +1469,32 @@
             <tbody>
               <tr><td><code>overview</code></td><td><code>month</code></td><td>Start here. Ready to Assign, overspent envelopes, card payments no envelope is funding, account totals by kind, net worth and the next 14 days.</td></tr>
               <tr><td><code>accounts</code></td><td><code>include_closed</code></td><td>Every visible account, with its balance, cleared and uncleared amounts, institution and holder.</td></tr>
-              <tr><td><code>transactions</code></td><td><code>from</code>, <code>to</code>, <code>account_id</code>, <code>category_id</code>, <code>payee</code>, <code>text</code>, <code>min_amount</code>, <code>max_amount</code>, <code>include_transfers</code>, <code>limit</code> (1&ndash;500), <code>cursor</code></td><td>Newest first, splits as lines, transfers left out unless asked for. 100 a page by default; pass <code>next_cursor</code> back as <code>cursor</code>.</td></tr>
+              <tr><td><code>transactions</code></td><td><code>from</code>, <code>to</code>, <code>account_id</code>, <code>category_id</code>, <code>payee</code>, <code>text</code>, <code>min_amount</code>, <code>max_amount</code>, <code>include_transfers</code>, <code>limit</code> (1 to 500), <code>cursor</code></td><td>Newest first, splits as lines, transfers left out unless asked for. 100 a page by default; pass <code>next_cursor</code> back as <code>cursor</code>.</td></tr>
               <tr><td><code>budget_month</code></td><td><code>month</code></td><td>Every envelope for a month: assigned, activity, available and target, the household and personal budgets labelled apart.</td></tr>
               <tr><td><code>spending</code></td><td><code>from</code>, <code>to</code> (both required); <code>group_by</code> (<code>category</code>, <code>payee</code>, <code>month</code> or <code>account</code>)</td><td>Spending totals between two dates. Transfers are excluded, as on Reports.</td></tr>
-              <tr><td><code>loans</code></td><td>&mdash;</td><td>Outstanding principal, rate, EMI, remaining tenure and interest paid so far.</td></tr>
-              <tr><td><code>loan_schedule</code></td><td><code>loan_id</code> (required); <code>limit</code> (1&ndash;600)</td><td>One loan&rsquo;s instalments: date, principal, interest and the balance after.</td></tr>
-              <tr><td><code>portfolio</code></td><td>&mdash;</td><td>Holdings with value, cost, gain and XIRR, and the allocation.</td></tr>
+              <tr><td><code>loans</code></td><td class="none">None</td><td>Outstanding principal, rate, EMI, remaining tenure and interest paid so far.</td></tr>
+              <tr><td><code>loan_schedule</code></td><td><code>loan_id</code> (required); <code>limit</code> (1 to 600)</td><td>One loan&rsquo;s instalments: date, principal, interest and the balance after.</td></tr>
+              <tr><td><code>portfolio</code></td><td class="none">None</td><td>Holdings with value, cost, gain and XIRR, and the allocation.</td></tr>
               <tr><td><code>realised_gains</code></td><td><code>fy</code></td><td>Gains realised in a financial year, short and long term, by holding.</td></tr>
-              <tr><td><code>net_worth</code></td><td>&mdash;</td><td>The statement, assets and liabilities by kind, and its history.</td></tr>
+              <tr><td><code>net_worth</code></td><td class="none">None</td><td>The statement, assets and liabilities by kind, and its history.</td></tr>
               <tr><td><code>tax_estimate</code></td><td><code>fy</code></td><td>Both regimes, as the Tax screen shows them. A year without rates is refused.</td></tr>
-              <tr><td><code>cashflow</code></td><td><code>days</code> (1&ndash;366, default 30)</td><td>Schedules, card dues and deposit maturities in the coming days.</td></tr>
-              <tr><td><code>insurance</code></td><td>&mdash;</td><td>The policy register: insurer, type, cover, premium, next due and renewal.</td></tr>
-              <tr><td><code>goals</code></td><td>&mdash;</td><td>Savings goals and how far each has come.</td></tr>
-              <tr><td><code>financial_independence</code></td><td>&mdash;</td><td>The target from what the household spent, the assets that could fund it, and the years a locked provident fund leaves uncovered.</td></tr>
+              <tr><td><code>cashflow</code></td><td><code>days</code> (1 to 366, default 30)</td><td>Schedules, card dues and deposit maturities in the coming days.</td></tr>
+              <tr><td><code>insurance</code></td><td class="none">None</td><td>The policy register: insurer, type, cover, premium, next due and renewal.</td></tr>
+              <tr><td><code>goals</code></td><td class="none">None</td><td>Savings goals and how far each has come.</td></tr>
+              <tr><td><code>financial_independence</code></td><td class="none">None</td><td>The target from what the household spent, the assets that could fund it, and the years a locked provident fund leaves uncovered.</td></tr>
               <tr><td><code>explain</code></td><td><code>what</code> (<code>ready_to_assign</code> or <code>category</code>, required); <code>category_id</code> (required for a category), <code>month</code></td><td>How Ready to Assign, or one envelope&rsquo;s available amount, was reached, line by line.</td></tr>
-              <tr><td><code>snapshot</code></td><td><code>months</code> (1&ndash;36, default 12)</td><td>Everything above in summary, without the transaction list. Large; the narrower tools suit a specific question.</td></tr>
+              <tr><td><code>snapshot</code></td><td><code>months</code> (1 to 36, default 12)</td><td>Everything above in summary, without the transaction list. Large; the narrower tools suit a specific question.</td></tr>
             </tbody>
           </table>
         </div>
-        <h3 style="margin-top:1.5rem" id="ai-changes">Changes an AI can make</h3>
+        <h3 id="ai-changes">Changes an AI can make</h3>
         <p>Only where the operator sets <code>AI_WRITE</code> to <code>standard</code> or <code>full</code> <em>and</em> the member ticked &ldquo;allow changes&rdquo; for that connection, on the consent page or on Connect an AI. Otherwise these tools are not listed at all. Each calls the function its screen calls, with the same checks, so another member&rsquo;s private things are &ldquo;not found&rdquo;. Their annotations say they are not read-only, and none is destructive.</p>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Tool</th><th>Arguments</th><th><code>standard</code></th><th><code>full</code></th><th>Does</th></tr></thead>
             <tbody>
               <tr><td><code>set_envelope</code></td><td><code>transaction_id</code>, <code>category_id</code></td><td>direct</td><td>direct</td><td>Files a transaction under one envelope.</td></tr>
-              <tr><td><code>split_transaction</code></td><td><code>transaction_id</code>, <code>lines</code> (2&ndash;25 of <code>category_id</code>, <code>amount</code>)</td><td>direct</td><td>direct</td><td>Splits it; the lines must add up to its amount exactly.</td></tr>
+              <tr><td><code>split_transaction</code></td><td><code>transaction_id</code>, <code>lines</code> (2 to 25 of <code>category_id</code>, <code>amount</code>)</td><td>direct</td><td>direct</td><td>Splits it; the lines must add up to its amount exactly.</td></tr>
               <tr><td><code>set_memo</code></td><td><code>transaction_id</code>, <code>memo</code></td><td>direct</td><td>direct</td><td>Sets or clears the memo.</td></tr>
               <tr><td><code>set_payee_default</code></td><td><code>payee</code>, <code>category_id</code>; <code>why</code></td><td>direct</td><td>direct</td><td>Proposes a payee&rsquo;s envelope as a rule waiting in Review; it files nothing until confirmed.</td></tr>
               <tr><td><code>add_transaction</code></td><td><code>account_id</code>, <code>amount</code>, <code>direction</code>, <code>why</code>; <code>date</code>, <code>payee</code>, <code>category_id</code>, <code>memo</code></td><td>suggestion</td><td>direct</td><td>Records money in or out, uncleared. Money out needs an envelope.</td></tr>
@@ -1499,14 +1504,14 @@
           </table>
         </div>
         <p>A direct change answers with what changed and its event id; a suggestion with its id and &ldquo;waiting for approval in Review&rdquo;, where only that member sees it. Never available: deleting anything, loans, investments, month close, settings, members, tokens, imports, rules and schedules. At most 100 changes a connection a day and 50 suggestions waiting; past either the tool answers <code>isError</code>. Every change is an event with source <code>ai</code> naming the app, and all of one connection&rsquo;s changes in an IST day share one idempotency key, which <b>Undo this AI&rsquo;s changes today</b> on Connect an AI reverses. When somebody has changed those records since, it lists those changes first, and undoing anyway restores each record as it was before the AI and loses them.</p>
-        <h3 style="margin-top:1.5rem">Masking and the access log</h3>
+        <h3>Masking and the access log</h3>
         <p>Masking is chosen per connection and on by default. Before an answer leaves, in every string except the app&rsquo;s own ids and dates, a run of nine or more digits keeps its last four, a UPI ID or email address keeps only what follows the <code>@</code>, and a PAN is masked whole. Amounts, envelope names and payee names are what the analysis needs, so they are sent. Masking is best effort: a name written into a narration does not match a pattern. It applies to answers through the AI connection (<code>/mcp</code> and <code>/export/analysis.json</code>); the app&rsquo;s other read routes answer the same key in full.</p>
         <p>Every tool call is logged: when, which app, which tool, its arguments, and the size of the answer, that it was refused, or that it changed something. The answers are not kept. A member sees only their own connections&rsquo; rows, on the Connect an AI page; they are kept 90 days, at most 2,000 a member. Reads are not in the activity log; connecting and disconnecting an app are. Reads of other routes with an AI connection&rsquo;s key, such as <code>/export.json</code>, are in neither.</p>
       </section>
       <section class="api-group" id="oauth">
         <h2>Signing in from an AI app</h2>
         <p>claude.ai custom connectors, ChatGPT connectors, the Gemini app, Gemini CLI and other MCP clients connect by URL: give them <code>/mcp</code> and they find the rest. Pathayam is its own OAuth 2.1 authorization server for this, following the MCP authorization spec.</p>
-        <ol style="margin:0 0 1.25rem;padding-left:1.25rem;display:grid;gap:.4rem">
+        <ol class="steps">
           <li><code>POST /mcp</code> without a usable token answers <code>401</code>, naming the protected resource metadata.</li>
           <li>That metadata (RFC 9728) names <code>/mcp</code> as the resource and your address as the authorization server, whose own metadata (RFC 8414) names the endpoints below.</li>
           <li>The app registers itself (RFC 7591). Redirect addresses must be <code>https</code>, or <code>http</code> on <code>localhost</code>, <code>127.0.0.1</code> or <code>[::1]</code> on any port, for command-line clients. No fragments, no credentials, at most ten. Public clients only.</li>
@@ -1518,8 +1523,8 @@
           <table>
             <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
             <tbody>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/.well-known/oauth-protected-resource</code><br><code>/.well-known/oauth-protected-resource/mcp</code></td><td><span class="pill">public</span></td><td>&mdash;</td><td>Protected resource metadata (RFC 9728): the resource is <code>/mcp</code>, the authorization server is this instance. Open to any origin.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/.well-known/oauth-authorization-server</code></td><td><span class="pill">public</span></td><td>&mdash;</td><td>Authorization server metadata (RFC 8414): where to register, authorize, trade a code and revoke. Open to any origin.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/.well-known/oauth-protected-resource</code><br><code>/.well-known/oauth-protected-resource/mcp</code></td><td><span class="pill">public</span></td><td class="none">None</td><td>Protected resource metadata (RFC 9728): the resource is <code>/mcp</code>, the authorization server is this instance. Open to any origin.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/.well-known/oauth-authorization-server</code></td><td><span class="pill">public</span></td><td class="none">None</td><td>Authorization server metadata (RFC 8414): where to register, authorize, trade a code and revoke. Open to any origin.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/oauth/register</code></td><td><span class="pill">public</span></td><td>JSON: <code>client_name</code>, <code>redirect_uris</code></td><td>Dynamic client registration (RFC 7591), JSON in and out. 20 an hour per address and 200 clients at most; one nobody approved within a day is removed.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/oauth/authorize</code></td><td><span class="pill">session</span></td><td><code>client_id</code>, <code>redirect_uri</code>, <code>response_type=code</code>, <code>code_challenge</code>, <code>code_challenge_method=S256</code>; <code>state</code>, <code>resource</code></td><td>The consent page, and the member&rsquo;s answer. Refused while viewing as another member and on the demo.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/oauth/token</code></td><td><span class="pill">public</span></td><td>Form-encoded: <code>grant_type</code> (<code>authorization_code</code> or <code>refresh_token</code>), <code>client_id</code>; <code>code</code>, <code>redirect_uri</code> and <code>code_verifier</code>, or <code>refresh_token</code>; <code>resource</code></td><td>Trade a code for an access token and a refresh token, or a refresh token for a new pair.</td></tr>
@@ -1527,7 +1532,7 @@
             </tbody>
           </table>
         </div>
-        <p style="margin-top:1rem">The Connect an AI page itself, <code>/tokens/ai</code>, and disconnecting an app are <a href="#session">session only</a>. No token, an AI app&rsquo;s included, can reach <code>/oauth</code> or <code>/tokens</code>: approving an app hands out a fresh token with its own refresh token, and a token that could do that would outlive its own revocation.</p>
+        <p>The Connect an AI page itself, <code>/tokens/ai</code>, and disconnecting an app are <a href="#session">session only</a>. No token, an AI app&rsquo;s included, can reach <code>/oauth</code> or <code>/tokens</code>: approving an app hands out a fresh token with its own refresh token, and a token that could do that would outlive its own revocation.</p>
       </section>
       <section class="api-group" id="session">
         <h2>Session only</h2>
@@ -1543,24 +1548,24 @@
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/auth/setup/:token</code></td><td><span class="pill">public</span></td><td><code>password</code>, <code>confirm</code></td><td>A one-time password link, opened signed out: choose a first password and be signed in. Works once, for 72 hours. Any unusable link (unknown, used, expired, or no longer allowed) answers the same 410. The POST is rate limited like <code>/auth/password</code>.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/auth/dev</code></td><td><span class="pill">public</span></td><td><code>member_id</code> (required)</td><td>Development sign-in. 404 unless <code>DEV_LOGIN</code> is set.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/demo/enter</code></td><td><span class="pill">public</span></td><td><code>member_id</code></td><td>Sign in to the demo as a fictional member, for one day. 404 unless <code>DEMO_MODE</code> is set.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/signout</code></td><td><span class="pill">session</span></td><td>—</td><td>Sign out.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/settings/password</code></td><td><span class="pill">session</span></td><td>—</td><td>The password form.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/signout</code></td><td><span class="pill">session</span></td><td class="none">None</td><td>Sign out.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/settings/password</code></td><td><span class="pill">session</span></td><td class="none">None</td><td>The password form.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/password</code></td><td><span class="pill">session</span></td><td><code>password</code>, <code>confirm</code> (required); <code>current</code></td><td>Set or change your own password. Changing one needs the current password.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/sessions/revoke</code></td><td><span class="pill">session</span></td><td><code>session_id</code> (required)</td><td>Sign one of your devices out.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/tokens</code></td><td><span class="pill">session</span></td><td>—</td><td>Your API tokens.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/tokens</code></td><td><span class="pill">session</span></td><td class="none">None</td><td>Your API tokens.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens</code></td><td><span class="pill">session</span></td><td><code>name</code> (required); <code>scope</code>, <code>expires_in_days</code> (1 to 3650, or empty for never)</td><td>Mint a token, shown once. 403 while viewing as another member.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens/:id/revoke</code></td><td><span class="pill">session</span></td><td>—</td><td>Revoke a token. It stops working at once.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens/:id/revoke</code></td><td><span class="pill">session</span></td><td class="none">None</td><td>Revoke a token. It stops working at once.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/tokens/ai</code></td><td><span class="pill">session</span></td><td>POST: <code>name</code> (required); <code>redact</code>, <code>allow_changes</code>, <code>expires_in_days</code> (30, 90 or 365)</td><td>Connect an AI: the address to give an app, connected apps, which of them can make changes, and what they have read. A POST makes a token (read-only unless <code>allow_changes=1</code> where <code>AI_WRITE</code> allows it) for a command-line or desktop client, always expiring, and shows it once with a ready <code>claude mcp add</code> command, a <code>gemini mcp add</code> command and a JSON configuration. 403 while viewing as another member; refused on the demo. 404 when <code>FEATURE_AI</code> is off.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens/ai/undo-today</code></td><td><span class="pill">session</span></td><td><code>connection_id</code> (required); <code>force</code></td><td>Undo every change one of your AI connections made today. When those records were changed since, answers a page listing what would be lost; <code>force=1</code> undoes anyway.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens/connections/:id/revoke</code></td><td><span class="pill">session</span></td><td>&mdash;</td><td>Disconnect an AI app that signed in through OAuth. Its access token and refresh token end together.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens/connections/:id/revoke</code></td><td><span class="pill">session</span></td><td class="none">None</td><td>Disconnect an AI app that signed in through OAuth. Its access token and refresh token end together.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/members/invite</code></td><td><span class="pill">session</span></td><td><code>email</code> (required)</td><td>Let someone in. Refused on the demo.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/members/:id/remove</code></td><td><span class="pill">session</span></td><td>—</td><td>What removing a member does, and how the balance between you can end.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/members/:id/remove</code></td><td><span class="pill">session</span></td><td class="none">None</td><td>What removing a member does, and how the balance between you can end.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/members/:id/remove</code></td><td><span class="pill">session</span></td><td><code>resolution</code></td><td>Remove a member. With a balance outstanding, 400 until <code>resolution</code> says how it ends. Clears their password. Refused on the demo.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/members/:id/password-link</code></td><td><span class="pill">session</span></td><td>—</td><td>Make a one-time link that sets another member&rsquo;s first password, shown once on the page it returns (200, never a redirect). 422 for yourself, a member with a password, one who has signed in before, or one holding records you cannot see; those come from <code>npm run password-link</code> on the server. Refused on the demo and while viewing as somebody.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/members/:id/password-link</code></td><td><span class="pill">session</span></td><td class="none">None</td><td>Make a one-time link that sets another member&rsquo;s first password, shown once on the page it returns (200, never a redirect). 422 for yourself, a member with a password, one who has signed in before, or one holding records you cannot see; those come from <code>npm run password-link</code> on the server. Refused on the demo and while viewing as somebody.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/impersonate/start</code><br><code>/impersonate/writes</code><br><code>/impersonate/exit</code></td><td><span class="pill">session</span></td><td><code>member_id</code>; <code>allow</code>, <code>return_to</code></td><td>View as another member, read-only unless writes are allowed. 404 unless <code>ADMIN_DEBUG</code> is set.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/gmail/connect</code><br><code>/gmail/callback</code></td><td><span class="pill">session</span></td><td><code>state</code>, <code>code</code> on the callback</td><td>Link a Gmail mailbox.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/disconnect</code></td><td><span class="pill">session</span></td><td>—</td><td>Unlink it.</td></tr>
-                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/keys</code></td><td><span class="pill">session</span></td><td><code>scope</code>, <code>client_id</code>, <code>client_secret</code>, <code>clear</code></td><td>Save or remove your own, or the household's, Google OAuth client.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/disconnect</code></td><td><span class="pill">session</span></td><td class="none">None</td><td>Unlink it.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/keys</code></td><td><span class="pill">session</span></td><td><code>scope</code>, <code>client_id</code>, <code>client_secret</code>, <code>clear</code></td><td>Save or remove your own, or the household’s, Google OAuth client.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1572,7 +1577,7 @@
           <table>
             <thead><tr><th>Rule</th><th>What it means</th></tr></thead>
             <tbody>
-              <tr><td>Bearer exemption</td><td>A request with <code>Authorization: Bearer …</code> and <b>no session cookie</b> skips the whole check. A browser cannot be tricked into sending one on somebody's behalf, so your scripts need nothing extra. A request that also carries a session cookie is held to the rules below, whatever it says in <code>Authorization</code>.</td></tr>
+              <tr><td>Bearer exemption</td><td>A request with <code>Authorization: Bearer …</code> and <b>no session cookie</b> skips the whole check. A browser cannot be tricked into sending one on somebody’s behalf, so your scripts need nothing extra. A request that also carries a session cookie is held to the rules below, whatever it says in <code>Authorization</code>.</td></tr>
               <tr><td>The host</td><td>The host the request was addressed to must be <code>BASE_URL</code>'s hostname, with <code>BASE_URL</code>'s port or none, or else an IP address or <code>localhost</code>, which no DNS answer can re-point. Anything else is <code>403</code>: <em>That request was addressed to a different host than BASE_URL.</em> This is what stops DNS rebinding.</td></tr>
               <tr><td>Behind a proxy</td><td>The host is the <code>Host</code> header, or the right-most <code>X-Forwarded-Host</code> entry when <code>TRUST_PROXY</code> is set. A reverse proxy must pass one of them through, or every write from a browser is refused.</td></tr>
               <tr><td><code>Origin</code></td><td>When present it must be <code>BASE_URL</code>'s origin or the origin the request was addressed by. Anything else is <code>403</code>: <em>That request came from somewhere else.</em></td></tr>
@@ -1580,7 +1585,7 @@
             </tbody>
           </table>
         </div>
-        <p style="margin-top:1rem">A script in a page of the app that uses the session cookie needs nothing extra either: <code>fetch</code> from that page sends a matching <code>Origin</code> on its own.</p>
+        <p>A script in a page of the app that uses the session cookie needs nothing extra either: <code>fetch</code> from that page sends a matching <code>Origin</code> on its own.</p>
       </section>
       <section class="api-group" id="refused">
         <h2>What a token cannot reach</h2>
@@ -1600,7 +1605,7 @@
               <tr><td><code>/auth</code></td><td>Sign-in, SSO, and the development bypass state.</td></tr>
               <tr><td><code>/signout</code></td><td>There is nothing for a token to sign out of.</td></tr>
               <tr><td><code>/settings/password</code></td><td>A password is a way in that does not need the token, and would outlive revoking it.</td></tr>
-              <tr><td><code>/sessions</code></td><td>Signing the member's devices out is left to a person.</td></tr>
+              <tr><td><code>/sessions</code></td><td>Signing the member’s devices out is left to a person.</td></tr>
               <tr><td><code>/gmail/connect</code>, <code>/gmail/callback</code>, <code>/gmail/disconnect</code>, <code>/gmail/keys</code></td><td>Linking a mailbox, or changing which Google client it consents to, changes what can reach the household. <code>/gmail/fetch</code> stays reachable.</td></tr>
               <tr><td><code>/oauth</code></td><td>Approving an AI app hands out a fresh token with its own refresh token; a token that could do that would outlive its own revocation. Under <code>/tokens</code>, the Connect an AI page is out of reach too.</td></tr>
             </tbody>
@@ -1612,16 +1617,18 @@
     </div>
   </section>
 
-  <section class="sec">
+  <section class="sec api-out">
     <div class="wrap">
       <div class="callout">
         <h2>Your data is easy to take with you</h2>
+        <div class="callout__side">
         <p>
           One endpoint returns everything in an open format, and the database is a
           SQLite file that any SQLite tool can open. You do not need this app to
           read the format.
         </p>
         <a class="btn btn--primary" href="guides.html">Read the guides</a>
+        </div>
       </div>
     </div>
   </section>
