@@ -51,31 +51,52 @@
 </header>
 
 <main id="main">
-  <section class="sec sec--tight">
-    <div class="wrap center">
-      <p class="eyebrow">Features</p>
-      <h1 style="font-size:var(--step-5);max-width:20ch;margin-inline:auto">Everything Pathayam does</h1>
-      <p class="lede" style="font-size:var(--step-2);max-width:52ch">We'll start with the newest feature: <a href="#ai">ask an AI about your own figures</a>. Then the budgeting engine at the heart of Pathayam, and how your transactions get in.</p>
+  <section class="fhero" aria-labelledby="h-top">
+    <div class="wrap">
+      <div class="fhero__grid">
+        <h1 id="h-top">Everything Pathayam does</h1>
+        <div class="fhero__side">
+          <p class="fhero__sub">We’ll start with the newest feature: <a href="#ai">ask an AI about your own figures</a>. Then the budgeting engine at the heart of Pathayam, and how your transactions get in.</p>
+          <div class="actions">
+            <a class="btn btn--primary" href="demo.html">Try the live demo</a>
+            <a class="btn btn--ghost" href="#plans">What each plan includes</a>
+          </div>
+        </div>
+      </div>
+      <nav class="toc" aria-label="On this page">
+        <ul>
+          <li><a href="#ai">Ask an AI</a></li>
+          <li><a href="#engine">Budget</a></li>
+          <li><a href="#cards">Cards</a></li>
+          <li><a href="#separate">Separate money</a></li>
+          <li><a href="#ingestion">Imports</a></li>
+          <li><a href="#analyse">Query and reports</a></li>
+          <li><a href="#debt">Loans</a></li>
+          <li><a href="#assets">Net worth</a></li>
+          <li><a href="#tax">Tax and insurance</a></li>
+          <li><a href="#platform">Platform</a></li>
+          <li><a href="#plans">Plans</a></li>
+        </ul>
+      </nav>
     </div>
   </section>
 
   <section class="sec" id="ai">
     <div class="wrap">
-    <div class="row2">
-      <div class="row2__text">
-        <p class="eyebrow">New · Connect an AI</p>
+    <div class="split">
+      <div class="split__text">
         <h2>Ask Claude, ChatGPT or Gemini about your money</h2>
         <p class="lede">Pathayam has a built-in MCP server (the Model Context Protocol, which AI apps use to reach other software), read-only by default, at <code>&lt;your Pathayam address&gt;/mcp</code>. Connect an AI app to it and ask about your household in your own words. The answers come from your own figures, calculated with the same arithmetic as the screens.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>Claude on claude.ai and in the Claude apps, Claude Code and Claude Desktop</li>
           <li>ChatGPT, through a custom connector</li>
           <li>Gemini CLI, and the Gemini app where Google offers custom apps</li>
           <li>Any other app that speaks MCP over HTTP</li>
         </ul>
-        <p class="tier__gst" style="margin-top:.75rem">Self-hosted, and on the hosted Household and Power plans. Not on the Solo plan, where it is switched off.</p>
+        <p class="fine">Self-hosted, and on the hosted Household and Power plans. Not on the Solo plan, where it is switched off.</p>
       </div>
       <figure class="chat">
-        <div class="chat__bar"><b>ChatGPT</b> · Pathayam connector <span class="chat__live">Read-only</span></div>
+        <div class="chat__bar"><b>ChatGPT</b><span>Pathayam connector</span><span class="chat__live">Read-only</span></div>
         <div class="chat__body">
           <p class="chat__you">We have ₹3 lakh spare. Can we prepay the home loan?</p>
           <p class="chat__tool">Pathayam <code>loans</code> <code>loan_schedule</code> <code>cashflow</code></p>
@@ -97,47 +118,43 @@
       </figure>
     </div>
 
-      <div class="cards cards--4" style="margin-top:3rem">
-        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg></span>
-          <h3>Read-only unless you allow it</h3>
+      <div class="rules">
+        <div class="rule"><h3>Read-only unless you allow it</h3>
           <p>Nothing changes unless your instance turns AI changes on and you tick &ldquo;allow changes&rdquo; for one app. Then it can file, split and annotate transactions, and suggest new ones, assignments and transfers for you to approve in Review. It can never delete anything, and every change can be undone.</p></div>
-        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6l7-3z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg></span>
-          <h3>Private by member</h3>
+        <div class="rule"><h3>Private by member</h3>
           <p>Each connection sees exactly what the member who approved it sees: the household budget and their own. Another member&rsquo;s private accounts never appear, not in a list, a total or a count. The same rules and the same code apply as on every screen.</p></div>
-        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 12h.01M10.5 12h.01M14 12h.01M17.5 12h.01"/></svg></span>
-          <h3>Masked by default</h3>
+        <div class="rule"><h3>Masked by default</h3>
           <p>Account numbers, UPI IDs, phone numbers and PAN are masked in what the AI connection answers, on every connection unless you turn it off for that one. Masking is best effort: a number typed into a memo in an unusual format may get through. The same key can also read the app&rsquo;s API pages, such as <code>/export.json</code>, in full; the page says so when you make it.</p></div>
-        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg></span>
-          <h3>Every question, on record</h3>
+        <div class="rule"><h3>Every question, on record</h3>
           <p>The Connect an AI page lists what each AI app asked for and when. The answers are not stored. Disconnect any app with one click.</p></div>
       </div>
 
-      <div class="row2" style="margin-top:3rem;align-items:start">
-        <div class="row2__text">
-          <h3 style="font-size:var(--step-3)">From claude.ai, ChatGPT or the Gemini app</h3>
-          <ol class="steps" style="margin-top:1.25rem">
-            <li><div>Add a custom connector in the AI app (Gemini calls it a custom app), and give it your address with <code>/mcp</code> on the end.</div></li>
-            <li><div>The app sends you to Pathayam. Sign in as yourself, and approve it.</div></li>
-            <li><div>Ask. It appears on the Connect an AI page, where you can disconnect it.</div></li>
+      <div class="connect">
+        <div class="connect__way">
+          <h3>From claude.ai, ChatGPT or the Gemini app</h3>
+          <ol class="steps">
+            <li>Add a custom connector in the AI app (Gemini calls it a custom app), and give it your address with <code>/mcp</code> on the end.</li>
+            <li>The app sends you to Pathayam. Sign in as yourself, and approve it.</li>
+            <li>Ask. It appears on the Connect an AI page, where you can disconnect it.</li>
           </ol>
-          <p class="hero__fine" style="margin-top:1rem">Sign-in is OAuth 2.1 with PKCE. Its access lasts an hour and renews while you keep it connected.</p>
+          <p class="fine">Sign-in is OAuth 2.1 with PKCE. Its access lasts an hour and renews while you keep it connected.</p>
         </div>
-        <div class="row2__text">
-          <h3 style="font-size:var(--step-3)">From Claude Code, Gemini CLI or Claude Desktop</h3>
-          <p style="margin-top:1.25rem;color:var(--ink-2)">Make a token on <strong>Settings &rarr; API tokens &rarr; Connect an AI</strong>. The page shows the token once, with the command to paste:</p>
-          <pre style="margin-top:1rem"><code>claude mcp add --transport http pathayam \
+        <div class="connect__way">
+          <h3>From Claude Code, Gemini CLI or Claude Desktop</h3>
+          <p>Make a token on <strong>Settings &rarr; API tokens &rarr; Connect an AI</strong>. The page shows the token once, with the command to paste:</p>
+          <pre><code>claude mcp add --transport http pathayam \
   https://budget.example.in/mcp \
   --header "Authorization: Bearer &lt;token&gt;"</code></pre>
-          <p class="hero__fine" style="margin-top:1rem">A hand-made token expires after 30, 90 or 365 days. Gemini CLI and a Claude Desktop config get their own ready-made lines.</p>
+          <p class="fine">A hand-made token expires after 30, 90 or 365 days. Gemini CLI and a Claude Desktop config get their own ready-made lines.</p>
         </div>
       </div>
 
-      <p class="note" style="margin-top:2.5rem">
+      <p class="note">
         <b>What an AI reads is sent to that AI&rsquo;s provider.</b> Anything it asks for travels to Anthropic, OpenAI or Google to be answered, under their terms rather than ours. Self-hosted, nothing goes anywhere unless you connect something; disconnect it and it stops.
       </p>
 
-      <div class="table-scroll" style="margin-top:2rem">
-        <table>
+      <div class="table-scroll">
+        <table class="ftable">
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
           <tr><td>Seven change tools, if you allow them</td><td><span class="toolnames"><code>set_envelope</code> <code>split_transaction</code> <code>set_memo</code> <code>set_payee_default</code> <code>add_transaction</code> <code>assign_to_envelope</code> <code>transfer</code></span>. Offered only where the operator sets <code>AI_WRITE</code> and you allowed that app changes. With <code>standard</code>, the last three wait in Review for you to approve; with <code>full</code> they are made directly. Never deletes, never touches loans, investments, settings or members. At most 100 a day, each in Activity, and one button undoes an app&rsquo;s whole day.</td></tr>
@@ -152,38 +169,40 @@
           </tbody>
         </table>
       </div>
-      <p class="guide-link" style="margin-top:1.5rem"><span>Guides</span><a href="guides.html#connect-ai">Connect Claude, ChatGPT or Gemini</a> · <a href="api.html#ai">The MCP server in the API reference</a></p>
+      <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#connect-ai">Connect Claude, ChatGPT or Gemini</a></li><li><a href="api.html#ai">The MCP server in the API reference</a></li></ul></div>
     </div>
   </section>
 
   <section class="sec sec--band" id="engine">
     <div class="wrap">
-    <div class="row2">
-      <div class="row2__text">
+    <div class="split">
+      <div class="split__text">
         <h2>Give every rupee a job</h2>
         <p class="lede">Income arrives and you hand it out. When Ready to Assign reaches zero, your month is planned, and next month opens with every leftover and every overspend already carried forward.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>Rollover under whichever overspend model you chose</li>
           <li>Overspending always shown</li>
           <li>Both models ship, and switching re-derives your whole history</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#first-budget">Build your first budget</a> · <a href="guides.html#assign">Assign, move and hold</a> · <a href="guides.html#overspend">When you go over</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#first-budget">Build your first budget</a></li><li><a href="guides.html#assign">Assign, move and hold</a></li><li><a href="guides.html#overspend">When you go over</a></li></ul></div>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/budget-mobile.webp" width="840" height="1800">
-          <img src="img/budget.webp" width="2800" height="11600" loading="lazy" alt="The month grid, with Ready to Assign at the top.">
-        </picture>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/budget-mobile.webp" width="840" height="1800">
+            <img src="img/budget.webp" width="2800" height="11600" loading="lazy" alt="The month grid, with Ready to Assign at the top.">
+          </picture>
+        </div>
         <figcaption>The month grid, with Ready to Assign at the top.</figcaption>
       </figure>
     </div>
-      <div class="table-scroll" style="margin-top:2rem">
-        <table>
+      <div class="table-scroll">
+        <table class="ftable">
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
-          <tr><td>Two overspend models</td><td>Reduce next month's Ready to Assign, or carry a negative category balance. Switchable, and switching re-derives every month since.</td></tr>
+          <tr><td>Two overspend models</td><td>Reduce next month’s Ready to Assign, or carry a negative category balance. Switchable, and switching re-derives every month since.</td></tr>
           <tr><td>Cover overspend</td><td>One tap to move from another envelope, with ranked suggestions for where to take it from.</td></tr>
-          <tr><td>Add-on cards</td><td>One member's card on another's account: one balance, one statement, one payment, while every transaction records which card was used and whose it is.</td></tr>
+          <tr><td>Add-on cards</td><td>One member’s card on another’s account: one balance, one statement, one payment, while every transaction records which card was used and whose it is.</td></tr>
           <tr><td>Targets and auto-assign</td><td>Fund every target in the order you arranged the budget, so what matters is funded first and the shortfall lands where you can see it.</td></tr>
           <tr><td>Hold for next month</td><td>Park income for next month until you are a full month ahead. When a spare month is sitting unassigned, the app says so.</td></tr>
           <tr><td>Forward recompute</td><td>Edit any past month and every month since re-derives under the active model, as one undoable batch.</td></tr>
@@ -194,27 +213,29 @@
     </div>
   </section>
 
-  <section class="sec">
+  <section class="sec" id="cards">
     <div class="wrap">
-    <div class="row2 row2--flip">
-      <div class="row2__text">
+    <div class="split">
+      <div class="split__text">
         <h2>Credit card bills you can plan for</h2>
         <p class="lede">Spending on a card moves money into its payment envelope the moment the charge lands, so the cash to clear the bill is already set aside. One screen ranks every card by what falls due next.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>Owed, set aside, and what has nothing behind it</li>
           <li>Statement amount, date, due date and minimum</li>
           <li>A shortfall is never reported larger than the card owes</li>
           <li>Every charge tagged with the statement cycle it bills in</li>
           <li>Convert a purchase to EMI, name it after what you bought, and the card stops asking for it twice</li>
-          <li>Each instalment's interest carries the 18% GST the issuer adds, as its own card charge</li>
+          <li>Each instalment’s interest carries the 18% GST the issuer adds, as its own card charge</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#cards">Credit cards</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#cards">Credit cards</a></li></ul></div>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/cards-mobile.webp" width="840" height="1800">
-          <img src="img/cards.webp" width="2800" height="2748" loading="lazy" alt="Cards, in the order they fall due.">
-        </picture>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/cards-mobile.webp" width="840" height="1800">
+            <img src="img/cards.webp" width="2800" height="2748" loading="lazy" alt="Cards, in the order they fall due.">
+          </picture>
+        </div>
         <figcaption>Cards, in the order they fall due.</figcaption>
       </figure>
     </div>
@@ -223,11 +244,11 @@
 
   <section class="sec" id="separate">
     <div class="wrap">
-    <div class="row2">
-      <div class="row2__text">
+    <div class="split">
+      <div class="split__text">
         <h2>Or keep your money separate</h2>
         <p class="lede">Most households pool everything, and that is the default. For households that prefer not to, each of you can keep your own accounts and put an agreed amount toward the shared bills, without moving money between accounts or telling anyone which account it came from.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>A budget of your own, with its own envelopes and its own Ready to Assign</li>
           <li>Private accounts and cards, kept out of lists, totals, exports and the activity log</li>
           <li>A private loan&rsquo;s EMI envelope sits in your own budget, out of everyone else&rsquo;s sight</li>
@@ -237,33 +258,37 @@
           <li>Reports and Query ask whose money, rather than assuming</li>
           <li>Leaving is handled: nothing is deleted, and the balance between you is settled first</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#separate">Keeping money separate</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#separate">Keeping money separate</a></li></ul></div>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/household-mobile.webp" width="840" height="1800">
-          <img src="img/household.webp" width="2800" height="2790" loading="lazy" alt="The household page: what each of you put in, and where it stands.">
-        </picture>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/household-mobile.webp" width="840" height="1800">
+            <img src="img/household.webp" width="2800" height="2790" loading="lazy" alt="The household page: what each of you put in, and where it stands.">
+          </picture>
+        </div>
         <figcaption>What each of you put in, and where it stands.</figcaption>
       </figure>
     </div>
 
-    <div class="row2 row2--flip" style="margin-top:3rem">
-      <div class="row2__text">
+    <div class="split split--more">
+      <div class="split__text">
         <h2>Nobody is in debt to their partner</h2>
         <p class="lede">If you have paid for more of the household than you put aside, you are <em>ahead</em>. That does not make you a creditor, or your partner a debtor. An uneven month can be settled in three ways, and the app keeps them distinct.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li><strong>Put it down to me</strong>: your share this month was larger</li>
-          <li><strong>I'll pick it up</strong>: the other person commits it instead</li>
+          <li><strong>I’ll pick it up</strong>: the other person commits it instead</li>
           <li><strong>Call it even</strong>: the only option that writes something off. It becomes ordinary spending for the person who gave, because the money still has to come from somewhere</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#squaring-up">Squaring up a month</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#squaring-up">Squaring up a month</a></li></ul></div>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/budget-mobile.webp" width="840" height="1800">
-          <img src="img/budget.webp" width="2800" height="11600" loading="lazy" alt="The budget screen, with the household commitment as an envelope like any other.">
-        </picture>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/budget-mobile.webp" width="840" height="1800">
+            <img src="img/budget.webp" width="2800" height="11600" loading="lazy" alt="The budget screen, with the household commitment as an envelope like any other.">
+          </picture>
+        </div>
         <figcaption>A commitment is an envelope like any other.</figcaption>
       </figure>
     </div>
@@ -272,39 +297,41 @@
 
   <section class="sec sec--band" id="ingestion">
     <div class="wrap">
-    <div class="row2">
-      <div class="row2__text">
+    <div class="split">
+      <div class="split__text">
         <h2>Bring your transactions in without retyping</h2>
         <p class="lede">Drop in a statement and it is parsed, checked against its own closing balance, and queued for your review. Nothing is posted until you approve it, and nothing needs retyping.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>Twelve Indian banks, password-protected PDFs included</li>
           <li>Bank alerts become review rows within seconds</li>
           <li>File a payee twice and a rule is proposed, never applied silently</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#import">Import statements</a> · <a href="guides.html#review">The review queue</a> · <a href="guides.html#rules">Rules and automatic filing</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#import">Import statements</a></li><li><a href="guides.html#review">The review queue</a></li><li><a href="guides.html#rules">Rules and automatic filing</a></li></ul></div>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/review-mobile.webp" width="840" height="1800">
-          <img src="img/review.webp" width="2800" height="3468" loading="lazy" alt="The review queue: nothing is posted until you review it.">
-        </picture>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/review-mobile.webp" width="840" height="1800">
+            <img src="img/review.webp" width="2800" height="3468" loading="lazy" alt="The review queue: nothing is posted until you review it.">
+          </picture>
+        </div>
         <figcaption>Nothing is posted until you review it.</figcaption>
       </figure>
     </div>
-      <div class="table-scroll" style="margin-top:2rem">
-        <table>
+      <div class="table-scroll">
+        <table class="ftable">
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
           <tr><td>Statement PDFs</td><td>Twelve banks plus broker contract notes. Password-protected files are opened in-process: no external tool, no library.</td></tr>
           <tr><td>Heavy files, read safely</td><td>Each PDF is read on its own, away from the rest of the app, with a ten-second limit and a cap on memory, so one awkward file cannot slow the app for everyone else. One is read at a time; on the public demo uploads queue, up to five at once from one address.</td></tr>
           <tr><td>Password derivation</td><td>Work the password out from your saved name, date of birth, PAN, mobile or card digits, so nobody types one. Axis and HDFC account statements open with the customer ID you save in Settings, and HSBC card statements with the card&rsquo;s last six. A card statement locked with digits its account lacks asks for them on import, and keeps them for next time. Opt-in, shown masked, never exported, never logged.</td></tr>
-          <tr><td>Reconciliation check</td><td>Every parse is verified against the statement's own closing balance. On a real 848-row statement it reconciles to the paisa.</td></tr>
+          <tr><td>Reconciliation check</td><td>Every parse is verified against the statement’s own closing balance. On a real 848-row statement it reconciles to the paisa.</td></tr>
           <tr><td>CSV import</td><td>Header detection, Indian amount formats, a Dr / Cr column beside an unsigned amount, UPI narration extraction, saved per-bank column mappings. When the dates could be day or month first, it asks how they are written.</td></tr>
           <tr><td>Coming from YNAB or Actual</td><td>Their CSV exports are recognised on the Import screen. Match their accounts to yours once, and the history lands in Review with transfers and splits intact. Transactions only: budgets and targets are set up here.</td></tr>
           <tr><td>Consolidated statement</td><td>The monthly CAS is the primary way holdings get in. Rows reconcile against existing lots rather than duplicating.</td></tr>
           <tr><td>SafeGold statements</td><td>Digital gold, read from SafeGold&rsquo;s monthly PDF, whether uploaded, dropped on Import or fetched from Gmail. Buys become lots with GST in the cost, sells realise gains, and the rows are checked against the closing gold balance. A re-import adds nothing.</td></tr>
           <tr><td>Five dedupe tiers</td><td>Exact, strong by reference, probable, weak, and manual-versus-imported, so one purchase never lands twice from an alert, an email and a statement.</td></tr>
-          <tr><td>Gmail ingestion</td><td>Opt-in, read-only. Reads only the banks' own addresses; an alert becomes a review row in seconds. Works on every plan with your own Google keys: one set for the household, or one per member. When a statement arrives locked and the bank wants card digits you have not saved, each such card is listed with a box to enter them.</td></tr>
+          <tr><td>Gmail ingestion</td><td>Opt-in, read-only. Reads only the banks’ own addresses; an alert becomes a review row in seconds. Works on every plan with your own Google keys: one set for the household, or one per member. When a statement arrives locked and the bank wants card digits you have not saved, each such card is listed with a box to enter them.</td></tr>
           <tr><td>Receipts</td><td>A photo or PDF per transaction, stored in the database and served so no device caches it.</td></tr>
           </tbody>
         </table>
@@ -314,27 +341,29 @@
 
   <section class="sec" id="analyse">
     <div class="wrap">
-    <div class="row2 row2--flip">
-      <div class="row2__text">
+    <div class="split">
+      <div class="split__text">
         <h2>Query your data and get the real total</h2>
         <p class="lede">One table you can filter, group and export. The totals cover every matching row, not only the rows that fit on screen.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>CSV export carries the same figures you saw</li>
           <li>Charts are server-rendered SVG; no charting library, no tracking</li>
           <li>Every computed figure can explain itself</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#query">Query and export</a> · <a href="guides.html#reports">Reports</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#query">Query and export</a></li><li><a href="guides.html#reports">Reports</a></li></ul></div>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/query-mobile.webp" width="840" height="1800">
-          <img src="img/query.webp" width="2800" height="6608" loading="lazy" alt="Query, with totals over every matching row.">
-        </picture>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/query-mobile.webp" width="840" height="1800">
+            <img src="img/query.webp" width="2800" height="6608" loading="lazy" alt="Query, with totals over every matching row.">
+          </picture>
+        </div>
         <figcaption>Query, with totals over every matching row.</figcaption>
       </figure>
     </div>
-      <div class="table-scroll" style="margin-top:2rem">
-        <table>
+      <div class="table-scroll">
+        <table class="ftable">
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
           <tr><td>Query</td><td>One filterable, groupable table everything else drills into. Totals sum every matching row, and the table makes clear that what you see is one page of results.</td></tr>
@@ -351,35 +380,37 @@
 
   <section class="sec sec--band" id="debt">
     <div class="wrap">
-    <div class="row2">
-      <div class="row2__text">
+    <div class="split">
+      <div class="split__text">
         <h2>Understand what the loan actually costs</h2>
         <p class="lede">A flat rate of 11% is not the same as 11% on a reducing balance. The app shows the equivalent reducing rate, the lifetime interest, and exactly what a prepayment saves, in months and in rupees.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>Tenure reduction against EMI reduction, side by side</li>
-          <li>Instalments carry the lender's own principal and interest split</li>
+          <li>Instalments carry the lender’s own principal and interest split</li>
           <li>Drift flagged when your projection and the lender&rsquo;s differ</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#loans">Loans</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#loans">Loans</a></li></ul></div>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/loans-mobile.webp" width="840" height="1800">
-          <img src="img/loans.webp" width="2800" height="3366" loading="lazy" alt="Each loan's real cost, schedule and drift.">
-        </picture>
-        <figcaption>Each loan's real cost, schedule and drift.</figcaption>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/loans-mobile.webp" width="840" height="1800">
+            <img src="img/loans.webp" width="2800" height="3366" loading="lazy" alt="Each loan's real cost, schedule and drift.">
+          </picture>
+        </div>
+        <figcaption>Each loan’s real cost, schedule and drift.</figcaption>
       </figure>
     </div>
-      <div class="table-scroll" style="margin-top:2rem">
-        <table>
+      <div class="table-scroll">
+        <table class="ftable">
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
           <tr><td>Interest models</td><td>Reducing balance and flat rate, with the equivalent reducing rate shown whenever a lender quotes flat.</td></tr>
           <tr><td>Disbursements</td><td>Per-tranche destinations: a builder-paid tranche raises the liability only; a personal loan into savings arrives in Ready to Assign, and is never counted as income.</td></tr>
           <tr><td>Prepayment</td><td>Tenure against EMI as the headline comparison, with interest saved and instalments saved. Reducing tenure is the default.</td></tr>
           <tr><td>Rate resets</td><td>Both options a lender must offer, priced at the rate you type against your actual balance, and the one you pick is the one applied.</td></tr>
-          <tr><td>Foreclosure</td><td>Settling early records the lender's charge against an account and an envelope, so the saving you compare against is the one actually on offer.</td></tr>
-          <tr><td>The EMI is budgeted</td><td>A loan's payment envelope carries a monthly target equal to its EMI from the day the loan exists, rate changes move it, and closing the loan clears it.</td></tr>
+          <tr><td>Foreclosure</td><td>Settling early records the lender’s charge against an account and an envelope, so the saving you compare against is the one actually on offer.</td></tr>
+          <tr><td>The EMI is budgeted</td><td>A loan’s payment envelope carries a monthly target equal to its EMI from the day the loan exists, rate changes move it, and closing the loan clears it.</td></tr>
           <tr><td>Drift</td><td>The app projects, the lender reconciles. When the two disagree, it says so rather than silently adopting either.</td></tr>
           <tr><td>Reconcile what you owe</td><td>Reconciling a card or a loan asks how much the statement says you owe, typed as printed (10,000 Dr or (10,000) both work), so a statement that matches shows no gap.</td></tr>
           <tr><td>Private loans</td><td>A loan marked private keeps its payment envelope, EMI target and instalments in its holder&rsquo;s own budget, out of the household&rsquo;s budget, Reports and Activity.</td></tr>
@@ -394,75 +425,81 @@
 
   <section class="sec" id="assets">
     <div class="wrap">
-    <div class="row2 row2--flip">
-      <div class="row2__text">
+    <div class="split">
+      <div class="split__text">
         <h2>Your whole financial picture, kept separate from the budget</h2>
         <p class="lede">Holdings as units with real lots, and net worth split into what you saved, what the market did and what you paid off, and the parts add up to the change. None of it appears on the budget screen.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>XIRR as the headline return, not a simple percentage</li>
           <li>Selling shows the exact lots it will consume before you confirm</li>
           <li>Indian shares and ETFs priced each evening from NSE&rsquo;s and BSE&rsquo;s own files, with no API key</li>
           <li>Unrealised gains are never income</li>
           <li>A financial-independence target built from what you actually spent</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#portfolio">Portfolio</a> · <a href="guides.html#share-prices">Share prices</a> · <a href="guides.html#networth">Net worth</a> · <a href="guides.html#fire">Independence</a> · <a href="guides.html#tax">Tax</a> · <a href="guides.html#valuations">Hand-valued assets</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#portfolio">Portfolio</a></li><li><a href="guides.html#share-prices">Share prices</a></li><li><a href="guides.html#networth">Net worth</a></li><li><a href="guides.html#fire">Independence</a></li><li><a href="guides.html#tax">Tax</a></li><li><a href="guides.html#valuations">Hand-valued assets</a></li></ul></div>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/net-worth-mobile.webp" width="840" height="1800">
-          <img src="img/net-worth.webp" width="2800" height="7412" loading="lazy" alt="Net worth, and where the change came from.">
-        </picture>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/net-worth-mobile.webp" width="840" height="1800">
+            <img src="img/net-worth.webp" width="2800" height="7412" loading="lazy" alt="Net worth, and where the change came from.">
+          </picture>
+        </div>
         <figcaption>Net worth, and where the change came from.</figcaption>
       </figure>
     </div>
 
-    <div class="row2" style="margin-top:3rem" id="deposits">
-      <div class="row2__text">
+    <div class="split split--more" id="deposits">
+      <div class="split__text">
         <h2>Deposits that value themselves</h2>
         <p class="lede">Give a fixed deposit, a recurring deposit, a PPF or an EPF its terms once, and it is worth what the arithmetic says on any day you check, with no passbook figure to retype every quarter.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>Principal or monthly instalment, rate, compounding, start, maturity and payout</li>
           <li>PPF and EPF interest worked out month by month and credited each 31 March</li>
           <li>The maturity shows on the account page, the cashflow calendar and the Overview</li>
           <li>A passbook figure dated on or after the terms still wins, until the next contribution</li>
           <li>Nothing is posted at maturity: you record the money where it lands</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#valuations">Hand-valued assets</a> · <a href="guides.html#assets-life">An asset&rsquo;s life</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#valuations">Hand-valued assets</a></li><li><a href="guides.html#assets-life">An asset&rsquo;s life</a></li></ul></div>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/deposit-mobile.webp" width="840" height="1800">
-          <img src="img/deposit.webp" width="2800" height="2748" loading="lazy" alt="A fixed deposit's account page: its terms, what it is worth today, and what it paid at maturity.">
-        </picture>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/deposit-mobile.webp" width="840" height="1800">
+            <img src="img/deposit.webp" width="2800" height="2748" loading="lazy" alt="A fixed deposit's account page: its terms, what it is worth today, and what it paid at maturity.">
+          </picture>
+        </div>
         <figcaption>A fixed deposit, valued from its terms.</figcaption>
       </figure>
     </div>
 
-    <div class="row2 row2--flip" style="margin-top:3rem">
-      <div class="row2__text">
+    <div class="split split--more">
+      <div class="split__text">
         <h2>Find out when you could stop working</h2>
         <p class="lede">A target from what the household actually spent over the last year, against only the assets that could pay for it.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>Spending is money leaving your envelopes, not a figure you guess</li>
           <li>A home counts towards net worth, not here</li>
-          <li>Provident funds locked until 58&ndash;60 are counted apart, with the gap they leave</li>
+          <li>Provident funds locked until 58 to 60 are counted apart, with the gap they leave</li>
           <li>Everything it left out is listed, with the reason</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#fire">Independence</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#fire">Independence</a></li></ul></div>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/fire-mobile.webp" width="840" height="1800">
-          <img src="img/fire.webp" width="2800" height="4238" loading="lazy" alt="The financial independence page: the target, what is held towards it, and where the number comes from.">
-        </picture>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/fire-mobile.webp" width="840" height="1800">
+            <img src="img/fire.webp" width="2800" height="4238" loading="lazy" alt="The financial independence page: the target, what is held towards it, and where the number comes from.">
+          </picture>
+        </div>
         <figcaption>The target, and where the number comes from.</figcaption>
       </figure>
     </div>
-      <div class="table-scroll" style="margin-top:2rem">
-        <table>
+      <div class="table-scroll">
+        <table class="ftable">
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
-          <tr><td>An asset's history, readable</td><td>Gold bought, added to, revalued and half sold shows as a register on its own account page: date, what happened, the change, and what it is worth. Nothing is overwritten, so what you thought it was worth in March is still there in December.</td></tr>
+          <tr><td>An asset’s history, readable</td><td>Gold bought, added to, revalued and half sold shows as a register on its own account page: date, what happened, the change, and what it is worth. Nothing is overwritten, so what you thought it was worth in March is still there in December.</td></tr>
           <tr><td>Hand-valued assets, over their whole life</td><td>Buy gold, buy more of it, revalue it, sell some or all of it. Each records both halves, the value and the money. Selling part keeps the account open with what is left. Buying asks where the cash came from, so net worth never rises out of nothing.</td></tr>
           <tr><td>It reports its own inconsistencies</td><td>A demat account, a loan and a hand-valued asset show a figure derived rather than counted, so a transaction entered against one used to vanish. Those accounts are no longer offered when adding a transaction, and any gap already there is reported next to the total.</td></tr>
           <tr><td>Rules that build a value</td><td>A rule can write <code>UPI ref {reference}</code> into the memo and get the actual reference, rather than the same constant on every row. Substitution only, with no expressions, so a rule cannot loop or be fed something hostile from a statement.</td></tr>
@@ -470,7 +507,7 @@
           <tr><td>Transfers that cost something</td><td>An IMPS fee, a demat charge, a conversion markup. It leaves the sending account on top of the amount so the balance still matches the statement, and it lands in an envelope because it is spending.</td></tr>
           <tr><td>Schedules that split</td><td>A salary into provident fund, tax and what actually landed; rent into rent and maintenance. The remainder is worked out for you, so a recurring split cannot be quietly wrong every month. On a salary, you can name only the pieces that have a home and let the rest land in Ready to Assign.</td></tr>
           <tr><td>Financial independence</td><td>A target from a trailing year of real spending, divided by a withdrawal rate you set. Counts only assets that can actually be drawn down (a home is on the net-worth statement, not here) and lists what it left out, with the reason.</td></tr>
-          <tr><td>The provident-fund bridge</td><td>EPF and NPS cannot be touched before 58&ndash;60. They are counted apart, and the years between stopping and that unlock are reported as a gap the drawable corpus has to cover alone.</td></tr>
+          <tr><td>The provident-fund bridge</td><td>EPF and NPS cannot be touched before 58 to 60. They are counted apart, and the years between stopping and that date are reported as a gap the drawable corpus has to cover alone.</td></tr>
           <tr><td>Units and lots</td><td>Holdings as units with FIFO lots, so cost basis, the realised split and XIRR are derived rather than estimated.</td></tr>
           <tr><td>Price feeds</td><td>Mutual funds and currency refresh from keyless public sources. Indian shares and ETFs, given an ISIN or NSE symbol, take each evening&rsquo;s close from NSE&rsquo;s and BSE&rsquo;s published end-of-day files: no key, and nothing about your holdings is sent. Foreign shares use a free-tier Alpha Vantage key. Every price is refreshed again at midnight IST, and every price carries its date. A share that has moved to a new ISIN, usually after a split, is flagged for you to check rather than priced against the wrong units.</td></tr>
           <tr><td>Hand-valued pots</td><td>Gold, retirement, anything outside the consolidated statement, all updated in one sitting. A deposit given its terms values itself: the same screen shows its computed figure, and a figure typed there still wins until the next contribution.</td></tr>
@@ -484,11 +521,11 @@
 
   <section class="sec" id="tax">
     <div class="wrap">
-    <div class="row2">
-      <div class="row2__text">
+    <div class="split">
+      <div class="split__text">
         <h2>Tax, from what is already in the books</h2>
         <p class="lede">Both regimes side by side for one financial year, drawing on what the books already hold (home-loan interest, capital gains, the tax you have paid, your insurance premiums) and on what the department already holds, from your Annual Information Statement. An estimate, not a return and not advice.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>Home-loan interest under 24(b) from the loans you mark lived in</li>
           <li>Your AIS read for TDS by deductor, salary, interest and dividends</li>
           <li>TDS, advance and self-assessment tax netted to a balance due or a refund</li>
@@ -498,22 +535,24 @@
           <li>How much of the ₹1.25 lakh tax-free equity gain is left before 31 March</li>
           <li>Prints as a document, caveat included</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#tax">Tax</a> · <a href="guides.html#ais">Your AIS</a> · <a href="guides.html#tax-free-gains">Tax-free gains</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#tax">Tax</a></li><li><a href="guides.html#ais">Your AIS</a></li><li><a href="guides.html#tax-free-gains">Tax-free gains</a></li></ul></div>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/tax-mobile.webp" width="840" height="1800">
-          <img src="img/tax.webp" width="2800" height="9104" loading="lazy" alt="The tax estimate for one financial year: the caveat, the year, and the old regime's working.">
-        </picture>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/tax-mobile.webp" width="840" height="1800">
+            <img src="img/tax.webp" width="2800" height="9104" loading="lazy" alt="The tax estimate for one financial year: the caveat, the year, and the old regime's working.">
+          </picture>
+        </div>
         <figcaption>Both regimes, worked through line by line.</figcaption>
       </figure>
     </div>
 
-    <div class="row2 row2--flip" style="margin-top:3rem" id="insurance">
-      <div class="row2__text">
+    <div class="split split--more" id="insurance">
+      <div class="split__text">
         <h2>Every policy, and when it is next due</h2>
         <p class="lede">Term, health, vehicle and home cover in one register: what each costs, what it covers, and when the next premium falls due.</p>
-        <ul class="checks" style="margin-top:1.5rem">
+        <ul class="checks">
           <li>Renewals show in the Overview&rsquo;s &ldquo;Due soon&rdquo;</li>
           <li>Marking a premium paid moves the date on and posts nothing, because the payment is already in the bank&rsquo;s record</li>
           <li>Lapsed and ended policies kept apart from those in force</li>
@@ -521,16 +560,18 @@
           <li>Premiums grouped under 80C and 80D are offered to the tax estimate</li>
         </ul>
       </div>
-      <figure class="frame">
-        <picture>
-          <source media="(max-width: 44rem)" srcset="img/insurance-mobile.webp" width="840" height="1800">
-          <img src="img/insurance.webp" width="2800" height="3596" loading="lazy" alt="The insurance register: policies in force with their premiums and due dates, and a lapsed one below.">
-        </picture>
+      <figure class="shot">
+        <div class="frame">
+          <picture>
+            <source media="(max-width: 44rem)" srcset="img/insurance-mobile.webp" width="840" height="1800">
+            <img src="img/insurance.webp" width="2800" height="3596" loading="lazy" alt="The insurance register: policies in force with their premiums and due dates, and a lapsed one below.">
+          </picture>
+        </div>
         <figcaption>Policies in force, and the one that lapsed.</figcaption>
       </figure>
     </div>
-      <div class="table-scroll" style="margin-top:2rem">
-        <table>
+      <div class="table-scroll">
+        <table class="ftable">
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
           <tr><td>Tax estimate</td><td>Both regimes side by side for one financial year, with 80C, 80D and the HRA exemption, and a plain list of what it does not model. An estimate on figures you enter and figures the ledger holds, not a return and not advice.</td></tr>
@@ -550,27 +591,25 @@
 
   <section class="sec sec--band" id="platform">
     <div class="wrap">
-      <div class="center" style="margin-bottom:2.5rem">
+      <div class="fhead">
         <h2 class="h-sec">Built to be run by one household, for years</h2>
+        <div class="fhead__side">
         <p class="lede">The operational details that matter once you rely on it.</p>
-        <p class="guide-link" style="justify-content:center"><span>Guides</span><a href="guides.html#activity">Activity and undo</a> · <a href="guides.html#health">Backups and health</a> · <a href="guides.html#settings">Settings and tokens</a></p>
+        <div class="guide-link"><span>Guides</span><ul><li><a href="guides.html#activity">Activity and undo</a></li><li><a href="guides.html#health">Backups and health</a></li><li><a href="guides.html#settings">Settings and tokens</a></li></ul></div>
+        </div>
       </div>
-      <div class="cards">
-        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h11a5 5 0 0 1 0 10h-6"/><path d="M4 9l4-4M4 9l4 4"/></svg></span>
-          <h3>Everything undoes</h3>
+      <div class="rules">
+        <div class="rule"><h3>Everything undoes</h3>
           <p>Thirty days, on every action, from an append-only log. Where a later edit touched the same record it shows what it would discard first, and refuses when other records depend on it.</p></div>
-        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>
-          <h3>Backups that are tested</h3>
+        <div class="rule"><h3>Backups that are tested</h3>
           <p>A scheduled job restores the latest backup into a scratch database and compares control totals.</p></div>
-        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6l7-3z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg></span>
-          <h3>Privacy, checked by automated tests</h3>
+        <div class="rule"><h3>Privacy, checked by automated tests</h3>
           <p>Three separate checks enforce it: every screen rendered as the wrong member, every function that can name a viewer required to do so, and every addressable item requested by someone who should not have it. Each was written after a leak the others missed, including a receipt that downloaded byte for byte.</p></div>
-        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10" width="15" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
-          <h3>Nothing leaves without your consent</h3>
+        <div class="rule"><h3>Nothing leaves without your consent</h3>
           <p>No telemetry, no analytics, no crash reporting. Bank access is read-only and opt-in; AI access is opt-in, and read-only unless you allow changes, and the statement identity is excluded from every export by a test that asserts it.</p></div>
       </div>
-      <div class="table-scroll" style="margin-top:2rem">
-        <table>
+      <div class="table-scroll">
+        <table class="ftable">
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
           <tr><td>Sign in without a third party</td><td>A password hashed with scrypt, stored in its own table and never included in an export. Or use your own identity provider: Authelia, Authentik, Keycloak, anything speaking OpenID Connect, configured with one issuer URL. Google stays optional. Nothing about running this requires an account with a company.</td></tr>
@@ -601,23 +640,25 @@
 
   <section class="sec" id="plans">
     <div class="wrap">
-      <div class="center" style="margin-bottom:2rem">
+      <div class="fhead">
         <h2 class="h-sec">What each plan includes</h2>
+        <div class="fhead__side">
         <p class="lede">Self-hosting gets everything. The hosted plans differ in who it is for and what it keeps, not in how the budget works.</p>
-        <p class="guide-link" style="justify-content:center"><span>Guide</span><a href="guides.html#plans">Plans and modules</a> · <a href="pricing.html">Pricing</a></p>
+        <div class="guide-link"><span>Guide</span><ul><li><a href="guides.html#plans">Plans and modules</a></li><li><a href="pricing.html">Pricing</a></li></ul></div>
+        </div>
       </div>
       <div class="table-scroll">
-        <table>
+        <table class="ftable plans">
           <thead><tr><th></th><th>Self-host</th><th>Solo</th><th>Household</th><th>Power</th></tr></thead>
           <tbody>
           <tr><td>Members</td><td>Unlimited</td><td>1</td><td>Up to 5</td><td>Unlimited</td></tr>
           <tr><td>Budget engine, cards, rollover, month close</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
           <tr><td>Statement import: CSV, PDF, YNAB and Actual</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
           <tr><td>Insurance, goals, tax, reports, schedules, rules, receipts</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
-          <tr><td>Loans and lending in the family</td><td>✓</td><td>&mdash;</td><td>✓</td><td>✓</td></tr>
-          <tr><td>Investments, net worth, financial independence</td><td>✓</td><td>&mdash;</td><td>✓</td><td>✓</td></tr>
-          <tr><td>API tokens</td><td>✓</td><td>&mdash;</td><td>✓</td><td>✓</td></tr>
-          <tr><td>Connect an AI</td><td>✓</td><td>&mdash;</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Loans and lending in the family</td><td>✓</td><td class="no"><span class="sr-only">Not included</span></td><td>✓</td><td>✓</td></tr>
+          <tr><td>Investments, net worth, financial independence</td><td>✓</td><td class="no"><span class="sr-only">Not included</span></td><td>✓</td><td>✓</td></tr>
+          <tr><td>API tokens</td><td>✓</td><td class="no"><span class="sr-only">Not included</span></td><td>✓</td><td>✓</td></tr>
+          <tr><td>Connect an AI</td><td>✓</td><td class="no"><span class="sr-only">Not included</span></td><td>✓</td><td>✓</td></tr>
           <tr><td>Gmail, with your own Google keys</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
           <tr><td>Backups you can restore from</td><td>Yours to keep</td><td>30 days</td><td>90 days</td><td>1 year</td></tr>
           </tbody>
@@ -626,12 +667,12 @@
     </div>
   </section>
 
-  <section class="sec">
-    <div class="wrap">
-      <div class="callout">
-        <h2>See the engine at work in ten seconds</h2>
+  <section class="sec sec--band fclose" aria-labelledby="h-close">
+    <div class="wrap fclose__grid">
+      <h2 id="h-close" class="h-sec">See the engine at work in ten seconds</h2>
+      <div class="fclose__side">
         <p>A live envelope grid running the same arithmetic as the app. Assign money, watch Ready to Assign fall, and overspend a category to see how it is shown.</p>
-        <a class="btn btn--primary" href="demo.html">Try the live demo</a>
+        <div class="actions"><a class="btn btn--primary" href="demo.html">Try the live demo</a></div>
       </div>
     </div>
   </section>
