@@ -1,0 +1,116 @@
+/* Hallmark · tokens · theme: brand (Pathayam's own palette and faces, read from the old style.css :root) */
+/*
+ * Every colour and every face on the site comes from here. The light palette is
+ * :root; the two dark blocks redefine tokens only, so no component rule ever
+ * lives inside a theme block. The dark block appears twice on purpose: once for
+ * a reader whose system is dark and who has not chosen, once for a reader who
+ * pressed the toggle (site.js sets data-theme).
+ */
+:root {
+  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
+  --text-xs: 0.8125rem; --text-sm: 0.875rem; --text-md: 1.0625rem; --text-lg: 1.25rem; --text-xl: 1.5625rem; --text-2xl: 1.953rem; --text-3xl: 2.441rem;
+  --text-display-s: clamp(2.25rem, 4vw + 0.5rem, 3.75rem); --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
+  --text-section: clamp(2rem, 2.5vw + 1rem, 3.5rem); --text-title: clamp(1.25rem, 0.75vw + 0.875rem, 1.625rem); --text-lead: clamp(1.125rem, 0.35vw + 1rem, 1.375rem);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
+  --container: 1440px; --gutter: 64px; --gap-columns: 32px; --section-gap-s: 120px; --section-gap: 144px; --section-gap-l: 176px;
+  --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
+
+  /* Paper: the warm near-white the app itself uses. Pure white read as glare. */
+  --color-paper:   oklch(95.9% 0.010 87);
+  --color-paper-2: oklch(92.9% 0.016 86);
+  --color-paper-3: oklch(98.8% 0.007 89);
+  --color-ink:     oklch(21.9% 0.011 81);
+  --color-ink-2:   oklch(44.8% 0.024 85);
+  --color-muted:   oklch(50.3% 0.025 83);
+  --color-rule:    oklch(86.5% 0.020 85);
+  --color-rule-2:  oklch(76.9% 0.027 85);
+
+  /* The accent is the app's blue: a signal, never a fill. */
+  --color-accent:      oklch(46.9% 0.125 254);
+  --color-accent-2:    oklch(40.5% 0.106 253);
+  --color-accent-ink:  oklch(99% 0.004 254);
+  --color-accent-soft: oklch(93.7% 0.018 253);
+  --color-focus:       oklch(48% 0.19 254);
+
+  /* Harvest gold: the chest the product is named after. The mark, and nothing loud. */
+  --color-gold:      oklch(53.9% 0.104 77);
+  --color-gold-soft: oklch(95.5% 0.036 86);
+  --color-positive:  oklch(46.8% 0.107 153);
+  --color-warn:      oklch(54.3% 0.159 35);
+  --color-warn-soft: oklch(93.1% 0.025 39);
+  --color-error:     oklch(52% 0.19 27);
+  --color-success:   oklch(50% 0.12 150);
+
+  /* The nav slab: ink in light mode, a step above the page in dark. */
+  --color-slab:     oklch(21.9% 0.011 81);
+  --color-slab-ink: oklch(95.9% 0.010 87);
+  --color-slab-2:   oklch(78% 0.018 85);
+  --color-slab-mark: oklch(77.4% 0.130 81);
+  --color-code-ink: oklch(92% 0.010 261);
+  --color-code-comment: oklch(68% 0.030 160);
+  --color-code-string: oklch(84% 0.090 155);
+
+  /* The screenshots are of the app in dark mode; their frame matches them. */
+  --color-shot: oklch(19.1% 0.013 264);
+
+  --font-display: "Bricolage Grotesque", "Figtree", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-outlier: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mal: "Noto Serif Malayalam", serif;
+
+  --radius-card: 12px; --radius-input: 10px; --radius-pill: 999px; --rule-hair: 1px; --shadow-card: none;
+  --tracking-display: -0.025em;
+  --display-weight: 700;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-paper:   oklch(19.1% 0.013 264);
+    --color-paper-2: oklch(23.5% 0.017 264);
+    --color-paper-3: oklch(27.7% 0.022 266);
+    --color-ink:     oklch(95.7% 0.007 261);
+    --color-ink-2:   oklch(78% 0.022 261);
+    --color-muted:   oklch(70% 0.024 261);
+    --color-rule:    oklch(33% 0.025 262);
+    --color-rule-2:  oklch(44.3% 0.029 260);
+    --color-accent:      oklch(71.6% 0.125 255);
+    --color-accent-2:    oklch(78.7% 0.094 254);
+    --color-accent-ink:  oklch(19.0% 0.014 258);
+    --color-accent-soft: oklch(28.3% 0.040 258);
+    --color-focus:       oklch(74% 0.15 255);
+    --color-gold:      oklch(79.9% 0.118 82);
+    --color-gold-soft: oklch(26.0% 0.026 84);
+    --color-positive:  oklch(77.4% 0.143 155);
+    --color-warn:      oklch(71.8% 0.130 34);
+    --color-warn-soft: oklch(24.8% 0.031 39);
+    --color-slab:     oklch(14.5% 0.012 264);
+    --color-slab-ink: oklch(95.7% 0.007 261);
+    --color-slab-2:   oklch(74% 0.022 261);
+    --color-shot: oklch(14.5% 0.012 264);
+  }
+}
+:root[data-theme="dark"] {
+  --color-paper:   oklch(19.1% 0.013 264);
+  --color-paper-2: oklch(23.5% 0.017 264);
+  --color-paper-3: oklch(27.7% 0.022 266);
+  --color-ink:     oklch(95.7% 0.007 261);
+  --color-ink-2:   oklch(78% 0.022 261);
+  --color-muted:   oklch(70% 0.024 261);
+  --color-rule:    oklch(33% 0.025 262);
+  --color-rule-2:  oklch(44.3% 0.029 260);
+  --color-accent:      oklch(71.6% 0.125 255);
+  --color-accent-2:    oklch(78.7% 0.094 254);
+  --color-accent-ink:  oklch(19.0% 0.014 258);
+  --color-accent-soft: oklch(28.3% 0.040 258);
+  --color-focus:       oklch(74% 0.15 255);
+  --color-gold:      oklch(79.9% 0.118 82);
+  --color-gold-soft: oklch(26.0% 0.026 84);
+  --color-positive:  oklch(77.4% 0.143 155);
+  --color-warn:      oklch(71.8% 0.130 34);
+  --color-warn-soft: oklch(24.8% 0.031 39);
+  --color-slab:     oklch(14.5% 0.012 264);
+  --color-slab-ink: oklch(95.7% 0.007 261);
+  --color-slab-2:   oklch(74% 0.022 261);
+  --color-shot: oklch(14.5% 0.012 264);
+}
