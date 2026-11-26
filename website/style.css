@@ -2,7 +2,9 @@
  * paper: oklch(95.9% 0.010 87) · accent: oklch(46.9% 0.125 254) · display: Bricolage Grotesque · body: Figtree · hero: Banner (/) · nav: slab · footer: colophon block · signature: the budget screen as the lead proof, money in tabular mono like a ledger
  * axes: light/grotesk-heavy/cool · posture: Restrained · contrast: pass · fold: pass · v2.0.0 */
 /* Hallmark · pre-emit critique: P4 H4 E4 S5 R4 V4 · weakest: H, eight problem cards read as a wall; set them as an index of rows so the screens carry the weight */
-/* Hallmark · waive 37 · Noto Serif Malayalam sets only the word പത്തായം in the footer, the product's name in its own script, a wordmark role */
+/* Hallmark · waive 37 · Noto Serif Malayalam sets one word, പത്തായം, once in the footer · the product name in its own Malayalam script, a wordmark role */
+/* Hallmark · waive 59 · Banner hero, the budget screen section follows 64px under it · the Pathayam budget screen must start above the fold */
+/* Hallmark · dismissed 41 · .sec--band and .menu__panel take tokens that swap paper and ink together in dark mode, text colour follows */
 
 /*
  * Pathayam: the shared system every page reads.
@@ -77,10 +79,10 @@ code, kbd, samp { font-family: var(--font-outlier); font-size: 0.88em; }
 .menu__btn:hover, .menu[open] > .menu__btn { background: color-mix(in oklab, var(--color-slab-ink) 12%, transparent); }
 .menu__bars { font-size: var(--text-lg); line-height: 1; }
 
-.menu__panel > a:not(.btn) { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--space-sm); border-radius: var(--radius-input); font-size: var(--text-sm); font-weight: 500; color: var(--color-slab-2); text-decoration: none; transition: color var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out); }
+.menu__panel > a:not(.btn) { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--space-sm); border-radius: var(--radius-input); font-size: var(--text-sm); font-weight: 400; color: var(--color-slab-2); text-decoration: none; transition: color var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out); }
 .menu__panel > a:not(.btn):hover { color: var(--color-slab-ink); background: color-mix(in oklab, var(--color-slab-ink) 10%, transparent); }
 .menu__panel > a[aria-current="page"] { color: var(--color-slab-ink); text-decoration: underline; text-decoration-color: var(--color-gold); text-decoration-thickness: 2px; text-underline-offset: 0.5em; }
-.masthead :focus-visible { outline-color: var(--color-slab-ink); }
+.masthead :focus-visible, .masthead .btn:focus-visible { outline: 2px solid var(--color-slab-ink); outline-offset: 2px; }
 
 /* The nav's demo link stays quieter than the hero's: outlined on the slab. */
 .menu__panel > .btn--nav { margin-left: var(--space-xs); background: transparent; border-color: color-mix(in oklab, var(--color-slab-ink) 45%, transparent); color: var(--color-slab-ink); }

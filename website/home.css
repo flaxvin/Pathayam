@@ -7,7 +7,7 @@
  */
 
 /* ------------------------------------------------------------------ hero -- */
-.hero { padding-block: var(--space-3xl) var(--space-2xl); }
+.hero { padding-block: var(--space-2xl) var(--space-2xl); }
 .hero__grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-2xl); align-items: end; }
 .hero h1 { max-width: 14ch; font-size: var(--text-display); line-height: 1.02; }
 .hero__side { display: grid; gap: var(--space-lg); justify-items: start; }
@@ -36,7 +36,7 @@
 .screens__tabs button { min-height: 44px; padding: 0 var(--space-lg); border: 0; border-radius: var(--radius-input); background: transparent; color: var(--color-ink-2); font: 600 var(--text-md)/1 var(--font-body); white-space: nowrap; cursor: pointer; transition: background-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out); }
 .screens__tabs button:hover { color: var(--color-ink); }
 .screens__tabs button:active { transform: translateY(1px); }
-.screens__tabs button[aria-selected="true"] { background: var(--color-ink); color: var(--color-paper); }
+.screens__tabs button[aria-selected="true"] { background: var(--color-paper-3); color: var(--color-ink); box-shadow: 0 0 0 1px var(--color-rule-2); }
 .screens__tabs button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .screen { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-2xl); align-items: start; }
 .screen[hidden] { display: none; }
@@ -89,7 +89,7 @@
 .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
 .stats > div { display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: var(--space-xs); padding-inline: var(--space-xl); border-left: 1px solid var(--color-rule-2); }
 .stats > div:first-child { padding-left: 0; border-left: 0; }
-.stat__n { margin: 0; font-family: var(--font-display); font-weight: var(--display-weight); font-size: var(--text-display); line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: var(--color-accent); }
+.stat__n { margin: 0; font-family: var(--font-display); font-weight: var(--display-weight); font-size: var(--text-display); line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: var(--color-ink); }
 .stat__l { max-width: 26ch; font-size: var(--text-md); color: var(--color-ink-2); }
 
 /* ------------------------------------------------- what it will not do -- */
