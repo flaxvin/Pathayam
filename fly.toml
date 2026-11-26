@@ -56,9 +56,7 @@ primary_region = 'iad'
   # 2.3s of which is the app's own boot.
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  # Launch week 17-11 to 24-11-2026: one machine stays up so no visitor from
-  # the Show HN / Reddit posts waits through a cold start. Revert to 0 on 25-11.
-  min_machines_running = 1
+  min_machines_running = 0
   processes = ['app']
 
   # Exactly one machine, and the count is not expressed here — it is `fly scale

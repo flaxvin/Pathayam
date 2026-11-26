@@ -10,6 +10,7 @@
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="roadmap.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -50,194 +51,337 @@
 </header>
 
 <main id="main">
-  <section class="sec sec--tight">
-    <div class="wrap center">
-      <p class="eyebrow">Roadmap</p>
-      <h1 style="font-size:var(--step-5);max-width:18ch;margin-inline:auto">What comes next, and when.</h1>
-      <p class="lede" style="font-size:var(--step-2);max-width:54ch">This is what Flaxvin Technologies plans to build next for Pathayam, in order. The dates are targets and may move as the work progresses.</p>
+  <section class="rm-hero">
+    <div class="wrap rm-hero__grid">
+      <h1>What comes next, and when.</h1>
+      <div class="rm-hero__side">
+        <p class="rm-hero__sub">This is what Flaxvin Technologies plans to build next for Pathayam, in order. The dates are targets and may move as the work progresses.</p>
+        <div class="actions">
+          <a class="btn btn--primary" href="#planned">Planned</a>
+          <a class="btn btn--ghost" href="#shipped">Recently shipped</a>
+        </div>
+        <p class="rm-hero__fine">Last reviewed 14 November 2026.</p>
+      </div>
     </div>
   </section>
 
-  <section class="sec sec--band">
-    <div class="wrap prose">
-      <h2>How to read this</h2>
-      <p>Everything below is a plan rather than a commitment. Nothing here is sold or pre-paid, and an item can move or be dropped if it turns out to be the wrong thing to build.</p>
-      <p>The order is deliberate. Smaller, lower-risk work comes first. Anything that touches the accounting engine, which guarantees that your accounts, envelopes and Ready to Assign always reconcile to the rupee, is handled with the most care, because that guarantee is central to Pathayam.</p>
-      <p class="note">Two items near the bottom depend on decisions that are not about engineering. They are listed as longshots and may never happen, and we would rather say so openly.</p>
+  <section class="sec rm-read" aria-labelledby="h-read">
+    <div class="wrap rm-split">
+      <div class="rm-split__head">
+        <h2 id="h-read">How to read this</h2>
+      </div>
+      <div class="prose rm-read__body">
+        <p>Everything below is a plan rather than a commitment. Nothing here is sold or pre-paid, and an item can move or be dropped if it turns out to be the wrong thing to build.</p>
+        <p>The order is deliberate. Smaller, lower-risk work comes first. Anything that touches the accounting engine, which guarantees that your accounts, envelopes and Ready to Assign always reconcile to the rupee, is handled with the most care, because that guarantee is central to Pathayam.</p>
+        <p class="note">Two items near the bottom depend on decisions that are not about engineering. They are listed as longshots and may never happen, and we would rather say so openly.</p>
+      </div>
     </div>
   </section>
 
-  <section class="sec">
-    <div class="wrap">
-      <h2>Recently shipped</h2>
-      <p class="lede" style="max-width:56ch">What we have released in recent months.</p>
-      <ul class="checks" style="margin-top:1.25rem">
-        <li><strong>A tax estimate that reads your AIS more closely</strong>: with your AIS in, the standard deduction goes on your salary alone, not on interest and dividends, and the old regime deducts 80TTA, or 80TTB once you are 60, from the interest it reports. <a href="guides.html#ais">How it works</a>. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>Prices every night, and spending that counts your cards</strong>: every price is refreshed at midnight IST, and a share that has moved to a new ISIN after a split is flagged rather than mispriced. Reports now count card purchases as spending, as the Overview does, and a card EMI&rsquo;s processing fee shows in its total cost. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>Tax-free long-term gains, before 31 March</strong>: the tax estimate shows how much of your ₹1.25 lakh long-term equity exemption is still unused this year, and how many units of each holding could be sold, oldest lots first, to use it without going over. An estimate at the last stored price, with exit loads and charges left out; whether to sell, and whether to buy back, stays your call. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>Your Annual Information Statement, read for you</strong>: upload your AIS on the Tax page and we read the TDS, interest, dividends and salary the department already has on record, show you securities sold beside what you recorded, and offer the figures to your estimate for you to check and save. We keep the figures, not the file, and only you see them. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>Shares and ETFs priced for you</strong>: give an Indian share or ETF its ISIN or NSE symbol and it takes each evening&rsquo;s closing price from NSE&rsquo;s and BSE&rsquo;s own published files. No API key, no account, and nothing about what you hold is sent; just the day&rsquo;s file is fetched. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>Private loans that stay private</strong>: a loan marked private now keeps its payment envelope in its holder&rsquo;s own budget, so its name, its EMI and every instalment stay off the household budget, Reports and Activity. <a href="guides.html#loans">Whose loan it is</a>. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>A careful pass through every screen</strong>: 31 fixes from a review of the whole app, top to bottom. Reconciling a card or loan asks how much you owe; a move larger than an envelope holds needs you to allow it below zero; a goal&rsquo;s monthly figure counts what is already in this month; there is no independence target until 30 days of history; and statement PDFs are read on their own with a time limit, so one heavy file no longer holds up the app. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>Gmail on every plan</strong>: bring a Google OAuth client from your own Google Cloud project, for yourself or for the whole household, and fetch bank alerts and statements on Solo, Household or Power. The secret is encrypted at rest. <a href="guides.html#gmail-keys">How to make one</a>. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>Ask an AI about your money</strong>: connect Claude, ChatGPT, Gemini (the app where Google offers custom apps, or Gemini CLI) or any MCP app to a server built into Pathayam, and ask about your own figures. Read-only unless you allow it to file and annotate transactions and suggest new ones for you to approve in Review, where the operator turns that on. It sees what you see and no more, masks account numbers, UPI IDs, phone numbers and PAN by default, and every question it asked is listed. <a href="features.html#ai">How it works</a>. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>Digital gold from SafeGold</strong>: SafeGold&rsquo;s monthly statement, uploaded or fetched from Gmail, records its buys as lots with GST in the cost and its sells as realised gains, checked against the closing gold balance. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>Employer NPS in the tax estimate</strong>: the employer&rsquo;s contribution under 80CCD(2) lowers the estimate under both regimes, capped at its share of basic + DA. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>Card statements that ask for the card&rsquo;s digits</strong>: a statement locked with digits the card&rsquo;s account lacks asks for them on import and keeps them; after a Gmail fetch each such card is listed with a box. A card keeps up to its last eight digits, and SBI Card and Canara card statements read their credits, debits and narrations right. <span class="pill pill--ship">Nov 2026</span></li>
-        <li><strong>Password links</strong>: in a household that signs in with passwords, a member makes a one-time link that sets a newcomer&rsquo;s first password; whoever runs the server can make one with <code>npm run password-link</code>. <span class="pill pill--ship">Oct 2026</span></li>
-        <li><strong>Deposits that value themselves</strong>: give a fixed or recurring deposit, a PPF or an EPF its terms, and it is worth what the arithmetic says on any day. The maturity shows on the account page, the cashflow calendar and the Overview. <span class="pill pill--ship">Oct 2026</span></li>
-        <li><strong>Adding with no signal</strong>: the Add form keeps an entry on the device and sends it when the connection is back. The Add form only, and nothing is read offline. <span class="pill pill--ship">Oct 2026</span></li>
-        <li><strong>Tax from the ledger</strong>: home-loan interest under 24(b) from the loans themselves, TDS and tax already paid netted to a balance or a refund, and each advance-tax instalment checked against what was paid by its date. <span class="pill pill--ship">Oct 2026</span></li>
-        <li><strong>Insurance register</strong>: policies, premiums and renewals, with the 80C and 80D premiums offered to the tax estimate. <span class="pill pill--ship">Oct 2026</span></li>
-        <li><strong>Printing</strong>: the tax estimate, reports, month close, net worth and a loan's schedule print as documents. <span class="pill pill--ship">Oct 2026</span></li>
-        <li><strong>Import from YNAB or Actual Budget</strong>: their CSV exports land in Review with transfers and splits intact. <span class="pill pill--ship">Oct 2026</span></li>
-        <li><strong>GST on card EMIs</strong>: 18% on each instalment's interest, as its own card charge. <span class="pill pill--ship">Oct 2026</span></li>
-        <li><strong>Listed bonds and 2024-25 gains</strong>: a listed bond held over a year is taxed at 12.5%, 2024-25 gains are taxed at the rates of their sale date either side of 23-07-2024, and a year with no rates is refused. <span class="pill pill--ship">Oct 2026</span></li>
-        <li><strong>Net worth that adds up</strong>: money owed to family and other liabilities are counted, and the parts of the change add up to the total. <span class="pill pill--ship">Oct 2026</span></li>
-        <li><strong>More statements open themselves</strong>: Axis and HDFC account statements from the customer ID, HSBC card statements from the card's last six, and Standard Chartered statements recognised. <span class="pill pill--ship">Oct 2026</span></li>
-        <li><strong>Schedules on a weekday</strong>: “the first Sunday of each month”, “the last Friday”, alongside the existing date rules. <span class="pill pill--ship">Sep 2026</span></li>
-        <li><strong>Envelope lines everywhere</strong>: one control for splitting across envelopes, on adding and editing both transactions and schedules. The first line takes whatever the others leave, so the lines can never disagree with the total. <span class="pill pill--ship">Sep 2026</span></li>
-        <li><strong>Capital gains in the tax estimate</strong>: sorted by asset class and holding period, taxed at their own rates rather than slab rates. <span class="pill pill--ship">Sep 2026</span></li>
-        <li><strong>Sign in without Google</strong>: a password, or any OpenID Connect provider you already run. <span class="pill pill--ship">Sep 2026</span></li>
+  <section class="sec sec--band rm-ship" id="shipped" aria-labelledby="h-shipped">
+    <div class="wrap rm-split">
+      <div class="rm-split__head">
+        <h2 id="h-shipped">Recently shipped</h2>
+        <p class="lede">What we have released in recent months.</p>
+      </div>
+      <ul class="log">
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">A tax estimate that reads your AIS more closely</strong>
+          <p class="log__body">With your AIS in, the standard deduction goes on your salary alone, not on interest and dividends, and the old regime deducts 80TTA, or 80TTB once you are 60, from the interest it reports. <a href="guides.html#ais">How it works</a>.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">Prices every night, and spending that counts your cards</strong>
+          <p class="log__body">Every price is refreshed at midnight IST, and a share that has moved to a new ISIN after a split is flagged rather than mispriced. Reports now count card purchases as spending, as the Overview does, and a card EMI&rsquo;s processing fee shows in its total cost.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">Tax-free long-term gains, before 31 March</strong>
+          <p class="log__body">The tax estimate shows how much of your ₹1.25 lakh long-term equity exemption is still unused this year, and how many units of each holding could be sold, oldest lots first, to use it without going over. An estimate at the last stored price, with exit loads and charges left out; whether to sell, and whether to buy back, stays your call.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">Your Annual Information Statement, read for you</strong>
+          <p class="log__body">Upload your AIS on the Tax page and we read the TDS, interest, dividends and salary the department already has on record, show you securities sold beside what you recorded, and offer the figures to your estimate for you to check and save. We keep the figures, not the file, and only you see them.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">Shares and ETFs priced for you</strong>
+          <p class="log__body">Give an Indian share or ETF its ISIN or NSE symbol and it takes each evening&rsquo;s closing price from NSE&rsquo;s and BSE&rsquo;s own published files. No API key, no account, and nothing about what you hold is sent; just the day&rsquo;s file is fetched.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">Private loans that stay private</strong>
+          <p class="log__body">A loan marked private now keeps its payment envelope in its holder&rsquo;s own budget, so its name, its EMI and every instalment stay off the household budget, Reports and Activity. <a href="guides.html#loans">Whose loan it is</a>.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">A careful pass through every screen</strong>
+          <p class="log__body">31 fixes from a review of the whole app, top to bottom. Reconciling a card or loan asks how much you owe; a move larger than an envelope holds needs you to allow it below zero; a goal&rsquo;s monthly figure counts what is already in this month; there is no independence target until 30 days of history; and statement PDFs are read on their own with a time limit, so one heavy file no longer holds up the app.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">Gmail on every plan</strong>
+          <p class="log__body">Bring a Google OAuth client from your own Google Cloud project, for yourself or for the whole household, and fetch bank alerts and statements on Solo, Household or Power. The secret is encrypted at rest. <a href="guides.html#gmail-keys">How to make one</a>.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">Ask an AI about your money</strong>
+          <p class="log__body">Connect Claude, ChatGPT, Gemini (the app where Google offers custom apps, or Gemini CLI) or any MCP app to a server built into Pathayam, and ask about your own figures. Read-only unless you allow it to file and annotate transactions and suggest new ones for you to approve in Review, where the operator turns that on. It sees what you see and no more, masks account numbers, UPI IDs, phone numbers and PAN by default, and every question it asked is listed. <a href="features.html#ai">How it works</a>.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">Digital gold from SafeGold</strong>
+          <p class="log__body">SafeGold&rsquo;s monthly statement, uploaded or fetched from Gmail, records its buys as lots with GST in the cost and its sells as realised gains, checked against the closing gold balance.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">Employer NPS in the tax estimate</strong>
+          <p class="log__body">The employer&rsquo;s contribution under 80CCD(2) lowers the estimate under both regimes, capped at its share of basic + DA.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Nov 2026</span>
+          <strong class="log__title">Card statements that ask for the card&rsquo;s digits</strong>
+          <p class="log__body">A statement locked with digits the card&rsquo;s account lacks asks for them on import and keeps them; after a Gmail fetch each such card is listed with a box. A card keeps up to its last eight digits, and SBI Card and Canara card statements read their credits, debits and narrations right.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Oct 2026</span>
+          <strong class="log__title">Password links</strong>
+          <p class="log__body">In a household that signs in with passwords, a member makes a one-time link that sets a newcomer&rsquo;s first password; whoever runs the server can make one with <code>npm run password-link</code>.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Oct 2026</span>
+          <strong class="log__title">Deposits that value themselves</strong>
+          <p class="log__body">Give a fixed or recurring deposit, a PPF or an EPF its terms, and it is worth what the arithmetic says on any day. The maturity shows on the account page, the cashflow calendar and the Overview.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Oct 2026</span>
+          <strong class="log__title">Adding with no signal</strong>
+          <p class="log__body">The Add form keeps an entry on the device and sends it when the connection is back. The Add form only, and nothing is read offline.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Oct 2026</span>
+          <strong class="log__title">Tax from the ledger</strong>
+          <p class="log__body">Home-loan interest under 24(b) from the loans themselves, TDS and tax already paid netted to a balance or a refund, and each advance-tax instalment checked against what was paid by its date.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Oct 2026</span>
+          <strong class="log__title">Insurance register</strong>
+          <p class="log__body">Policies, premiums and renewals, with the 80C and 80D premiums offered to the tax estimate.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Oct 2026</span>
+          <strong class="log__title">Printing</strong>
+          <p class="log__body">The tax estimate, reports, month close, net worth and a loan’s schedule print as documents.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Oct 2026</span>
+          <strong class="log__title">Import from YNAB or Actual Budget</strong>
+          <p class="log__body">Their CSV exports land in Review with transfers and splits intact.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Oct 2026</span>
+          <strong class="log__title">GST on card EMIs</strong>
+          <p class="log__body">18% on each instalment’s interest, as its own card charge.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Oct 2026</span>
+          <strong class="log__title">Listed bonds and 2024-25 gains</strong>
+          <p class="log__body">A listed bond held over a year is taxed at 12.5%, 2024-25 gains are taxed at the rates of their sale date either side of 23-07-2024, and a year with no rates is refused.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Oct 2026</span>
+          <strong class="log__title">Net worth that adds up</strong>
+          <p class="log__body">Money owed to family and other liabilities are counted, and the parts of the change add up to the total.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Oct 2026</span>
+          <strong class="log__title">More statements open themselves</strong>
+          <p class="log__body">Axis and HDFC account statements from the customer ID, HSBC card statements from the card’s last six, and Standard Chartered statements recognised.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Sep 2026</span>
+          <strong class="log__title">Schedules on a weekday</strong>
+          <p class="log__body">“the first Sunday of each month”, “the last Friday”, alongside the existing date rules.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Sep 2026</span>
+          <strong class="log__title">Envelope lines everywhere</strong>
+          <p class="log__body">One control for splitting across envelopes, on adding and editing both transactions and schedules. The first line takes whatever the others leave, so the lines can never disagree with the total.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Sep 2026</span>
+          <strong class="log__title">Capital gains in the tax estimate</strong>
+          <p class="log__body">Sorted by asset class and holding period, taxed at their own rates rather than slab rates.</p>
+        </li>
+        <li class="log__row">
+          <span class="pill pill--ship log__when">Sep 2026</span>
+          <strong class="log__title">Sign in without Google</strong>
+          <p class="log__body">A password, or any OpenID Connect provider you already run.</p>
+        </li>
       </ul>
     </div>
   </section>
 
-  <section class="sec sec--band">
-    <div class="wrap">
-      <h2>Planned</h2>
-      <p class="lede" style="max-width:56ch">In order. Each phase starts when the one before it is released, so an early delay moves everything after it. That is why the later date ranges are wider.</p>
-
-      <ol class="steps" style="margin-top:1.75rem">
-        <li>
-          <div>
-            <h3 style="margin:0 0 .3rem">Locked envelopes <span class="pill pill--r">Q4 2026</span></h3>
+  <section class="sec rm-plan" id="planned" aria-labelledby="h-planned">
+    <div class="wrap rm-split">
+      <div class="rm-split__head">
+        <h2 id="h-planned">Planned</h2>
+        <p class="lede">In order. Each phase starts when the one before it is released, so an early delay moves everything after it. That is why the later date ranges are wider.</p>
+      </div>
+      <ol class="road">
+        <li class="road__row">
+          <div class="road__when">
+            <span class="pill pill--r">Q4 2026</span>
+            <p class="m road__size">Roughly 4 to 6 weeks.</p>
+          </div>
+          <div class="road__text">
+            <h3>Locked envelopes</h3>
             <p>Mark an envelope so its money cannot be moved out, such as school fees, the insurance sinking fund, or anything that must survive a tight month. Adding to a locked envelope always works; only taking from it is refused, and spending you actually did is still recorded.</p>
-            <p class="m">Roughly 4–6 weeks.</p>
           </div>
         </li>
-        <li>
-          <div>
-            <h3 style="margin:0 0 .3rem">Targets on a whole group <span class="pill pill--r">Q4 2026 – Q1 2027</span></h3>
+        <li class="road__row">
+          <div class="road__when">
+            <span class="pill pill--r">Q4 2026 to Q1 2027</span>
+            <p class="m road__size">Roughly 10 to 16 weeks for both halves.</p>
+          </div>
+          <div class="road__text">
+            <h3>Targets on a whole group</h3>
             <p>Set one target across a group of envelopes rather than on each, and see the group’s own subtotal on the budget screen. Useful when you care that “Food” gets ₹18,000 and not how it divides between groceries, vegetables and eating out.</p>
-            <p class="m">Roughly 10–16 weeks for both halves.</p>
           </div>
         </li>
-        <li>
-          <div>
-            <h3 style="margin:0 0 .3rem">Spending in another currency <span class="pill pill--r">Q2 2027</span></h3>
+        <li class="road__row">
+          <div class="road__when">
+            <span class="pill pill--r">Q2 2027</span>
+            <p class="m road__size">Roughly 8 to 12 weeks.</p>
+          </div>
+          <div class="road__text">
+            <h3>Spending in another currency</h3>
             <p>Enter a transaction as <strong>$40</strong> and have it stored as the rupees it cost. Your envelopes stay in rupees, and the conversion happens as you type, outside the budget.</p>
             <p>On a card used abroad, the real rupee figure is your bank’s, markup and cross-currency fee included, which is typically a few percent away from a market rate. So the converted amount is marked an estimate until your statement arrives, and then corrected to what you were actually charged.</p>
-            <p class="m">Roughly 8–12 weeks.</p>
           </div>
         </li>
-        <li>
-          <div>
-            <h3 style="margin:0 0 .3rem">Card milestones <span class="pill pill--r">Q2 – Q4 2027</span></h3>
+        <li class="road__row">
+          <div class="road__when">
+            <span class="pill pill--r">Q2 to Q4 2027</span>
+            <p class="m road__size">Roughly 14 to 20 weeks.</p>
+          </div>
+          <div class="road__text">
+            <h3>Card milestones</h3>
             <p>Track spend against the thresholds your cards actually use: per statement cycle, per financial-year quarter, and per financial year, so you don&rsquo;t miss an annual fee waiver or a quarterly voucher.</p>
             <p>It will say plainly that it is an estimate. Bank statements and SMS do not carry the merchant category reliably, so the rules work off your envelopes and payees, which is close but not the issuer’s own arithmetic.</p>
-            <p class="m">Roughly 14–20 weeks.</p>
           </div>
         </li>
-        <li>
-          <div>
-            <h3 style="margin:0 0 .3rem">Logging by chat <span class="pill pill--r">Q4 2027 – Q1 2028</span></h3>
+        <li class="road__row">
+          <div class="road__when">
+            <span class="pill pill--r">Q4 2027 to Q1 2028</span>
+            <p class="m road__size">Roughly 10 to 16 weeks.</p>
+          </div>
+          <div class="road__text">
+            <h3>Logging by chat</h3>
             <p>Send <strong>“450 groceries hdfc”</strong> to a Telegram bot and have it land in your budget, with a confirmation before anything is written. Telegram first because it needs nothing but a bot token and works on a home server behind a normal router.</p>
-            <p class="m">Roughly 10–16 weeks.</p>
           </div>
         </li>
       </ol>
     </div>
   </section>
 
-  <section class="sec">
-    <div class="wrap prose">
-      <h2>Longshots</h2>
-      <p>We would like to build both, and the work itself is not the obstacle. Each depends on a question that has nothing to do with code, and they may never happen.</p>
-
-      <h3>Account Aggregator sync <span class="pill pill--hold">No date</span></h3>
-      <p>Pulling transactions automatically through the RBI’s Account Aggregator framework requires being a registered Financial Information User, an entity-level registration with an aggregator, not something an individual household can hold. It could only work for instances we host, and only if your financial data passed through us on the way to you.</p>
-      <p>That runs against how Pathayam is designed, so we would never do it quietly. If it ever happens, it will be a separate, opt-in choice, explained in full before you make it, and the answer may well stay no.</p>
-
-      <h3>WhatsApp logging <span class="pill pill--hold">No date</span></h3>
-      <p>This raises the same question. WhatsApp requires a publicly reachable webhook, which a self-hosted instance behind a home router does not have, so it would mean your messages passing through a relay we operate. Telegram achieves the same thing without that, which is why Telegram is on the plan above and this is not.</p>
-    </div>
-  </section>
-
-  <section class="sec sec--band">
-    <div class="wrap prose">
-      <h2>Considered and set aside</h2>
-      <p>Ideas we have considered and decided against for now, with our reasons.</p>
-      <ul class="checks">
-        <li><strong>Envelopes that hold foreign currency.</strong> Different from entering a transaction in another currency, which is planned above. An envelope that genuinely holds dollars either breaks the guarantee that everything reconciles, or splits Ready to Assign into one figure per currency. Envelopes stay in rupees only, by design.</li>
-        <li><strong>Envelopes nested inside envelopes.</strong> Group subtotals are planned; envelopes that fund each other are not. A parent holding money while its children also hold money is an easy way to count the same rupee twice.</li>
-        <li><strong>Reward points arithmetic.</strong> Milestones are planned; points accrual is not. Rates, accelerated categories and monthly caps change often enough that the numbers would go quietly stale, which is worse than not showing them.</li>
+  <section class="sec sec--band rm-long" aria-labelledby="h-long">
+    <div class="wrap rm-split">
+      <div class="rm-split__head">
+        <h2 id="h-long">Longshots</h2>
+        <p class="lede">We would like to build both, and the work itself is not the obstacle. Each depends on a question that has nothing to do with code, and they may never happen.</p>
+      </div>
+      <ul class="road road--long">
+        <li class="road__row">
+          <div class="road__when">
+            <span class="pill pill--hold">No date</span>
+          </div>
+          <div class="road__text">
+            <h3>Account Aggregator sync</h3>
+            <p>Pulling transactions automatically through the RBI’s Account Aggregator framework requires being a registered Financial Information User, an entity-level registration with an aggregator, not something an individual household can hold. It could only work for instances we host, and only if your financial data passed through us on the way to you.</p>
+            <p>That runs against how Pathayam is designed, so we would never do it quietly. If it ever happens, it will be a separate, opt-in choice, explained in full before you make it, and the answer may well stay no.</p>
+          </div>
+        </li>
+        <li class="road__row">
+          <div class="road__when">
+            <span class="pill pill--hold">No date</span>
+          </div>
+          <div class="road__text">
+            <h3>WhatsApp logging</h3>
+            <p>This raises the same question. WhatsApp requires a publicly reachable webhook, which a self-hosted instance behind a home router does not have, so it would mean your messages passing through a relay we operate. Telegram achieves the same thing without that, which is why Telegram is on the plan above and this is not.</p>
+          </div>
+        </li>
       </ul>
     </div>
   </section>
 
-  <section class="sec">
-    <div class="wrap center">
-      <h2>Request a feature</h2>
-      <p class="lede" style="max-width:48ch;margin-inline:auto">The roadmap is shaped by what households need. If something is missing for you, please let us know.</p>
-      <p class="hero__actions" style="justify-content:center">
+  <section class="sec rm-aside" aria-labelledby="h-aside">
+    <div class="wrap rm-split">
+      <div class="rm-split__head">
+        <h2 id="h-aside">Considered and set aside</h2>
+        <p class="lede">Ideas we have considered and decided against for now, with our reasons.</p>
+      </div>
+      <dl class="aside">
+        <div>
+          <dt>Envelopes that hold foreign currency.</dt>
+          <dd>Different from entering a transaction in another currency, which is planned above. An envelope that genuinely holds dollars either breaks the guarantee that everything reconciles, or splits Ready to Assign into one figure per currency. Envelopes stay in rupees only, by design.</dd>
+        </div>
+        <div>
+          <dt>Envelopes nested inside envelopes.</dt>
+          <dd>Group subtotals are planned; envelopes that fund each other are not. A parent holding money while its children also hold money is an easy way to count the same rupee twice.</dd>
+        </div>
+        <div>
+          <dt>Reward points arithmetic.</dt>
+          <dd>Milestones are planned; points accrual is not. Rates, accelerated categories and monthly caps change often enough that the numbers would go quietly stale, which is worse than not showing them.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="sec rm-ask" aria-labelledby="h-ask">
+    <div class="wrap rm-ask__grid">
+      <div>
+        <h2 id="h-ask">Request a feature</h2>
+        <p class="lede">The roadmap is shaped by what households need. If something is missing for you, please let us know.</p>
+      </div>
+      <div class="actions">
         <a class="btn btn--primary" href="https://github.com/flaxvin/Pathayam/issues">Open an issue</a>
         <a class="btn btn--ghost" href="demo.html">Try the demo</a>
-      </p>
-      <p class="hero__fine">Last reviewed 14 November 2026.</p>
+      </div>
     </div>
   </section>
 </main>
 
 <footer class="foot">
-  <div class="wrap">
-    <div class="foot__grid">
-      <div>
-        <h2 class="foot__h">Pathayam</h2>
-        <ul>
-          <li><a href="features.html">Features</a></li>
-          <li><a href="pricing.html">Pricing</a></li>
-          <li><a href="demo.html">Live demo</a></li>
-        </ul>
-      </div>
-      <div>
-        <h2 class="foot__h">Reference</h2>
-        <ul>
-          <li><a href="guides.html">Documentation</a></li>
-          <li><a href="api.html">API guide</a></li>
-          <li><a href="roadmap.html">Roadmap</a></li>
-          <li><a href="https://github.com/flaxvin/Pathayam">Source on GitHub</a></li>
-          <li><a href="terms.html">Terms</a></li>
-          <li><a href="privacy.html">Privacy</a></li>
-        </ul>
-      </div>
-      <div>
-        <h2 class="foot__h">Built with</h2>
-        <ul>
-          <li>TypeScript on Node 24+</li>
-          <li>node:sqlite · node:http</li>
-          <li>Zero runtime dependencies</li>
-        </ul>
-      </div>
-      <div>
-        <h3 class="foot__h">The name</h3>
-        <ul>
-          <li><span class="mal">പത്തായം</span>: the wooden chest
-              that held a Kerala household's harvest, filled once and
-              drawn from with care.</li>
-        </ul>
-      </div>
-    </div>
+  <div class="wrap foot__inner">
+    <p class="foot__name"><span class="mal" lang="ml">പത്തായം</span>The wooden chest that held a Kerala household&rsquo;s harvest, filled once and drawn from with care.</p>
+    <nav aria-label="Site">
+      <ul class="foot__links">
+        <li><a href="features.html">Features</a></li>
+        <li><a href="pricing.html">Pricing</a></li>
+        <li><a href="demo.html">Live demo</a></li>
+        <li><a href="guides.html">Documentation</a></li>
+        <li><a href="api.html">API guide</a></li>
+        <li><a href="roadmap.html">Roadmap</a></li>
+        <li><a href="https://github.com/flaxvin/Pathayam">Source on GitHub</a></li>
+        <li><a href="terms.html">Terms</a></li>
+        <li><a href="privacy.html">Privacy</a></li>
+      </ul>
+    </nav>
     <p class="foot__note">
-      Run it yourself and your data stays on your machine: nothing is sent
-      anywhere unless you connect an AI app yourself. Hosted plans are available on request. Every figure and name in the screenshots
-      is fictional.
+      Built with TypeScript on Node 24 or later, on node:sqlite and node:http,
+      with zero runtime dependencies. Run it yourself and your data stays on
+      your machine: nothing is sent anywhere unless you connect an AI app
+      yourself. Hosted plans are available on request. Every figure and name in
+      the screenshots is fictional.
     </p>
     <p class="foot__legal">
-      A product of <a href="https://flaxvin.tech">Flaxvin Technologies</a> ·
-      <a href="terms.html">Terms of service</a> ·
-      <a href="privacy.html">Privacy policy</a> ·
-      <a href="terms.html#software">Licence</a> ·
+      <span>A product of <a href="https://flaxvin.tech">Flaxvin Technologies</a></span>
+      <a href="terms.html">Terms of service</a>
+      <a href="privacy.html">Privacy policy</a>
+      <a href="terms.html#software">Licence</a>
       <a href="https://github.com/flaxvin/Pathayam">Source</a>
     </p>
   </div>

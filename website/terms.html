@@ -10,6 +10,7 @@
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="terms.css">
 <link rel="canonical" href="https://pathayam.app/terms.html">
 </head>
 <body>
@@ -52,20 +53,23 @@
 
 <main id="main">
 
-  <section class="sec sec--tight">
+  <section class="banner">
     <div class="wrap wrap--prose">
-      <p class="eyebrow">Legal</p>
       <h1>Terms of service</h1>
       <p class="lede">
         What you may do with Pathayam, what we promise, and what we do not.
       </p>
-      <p class="legal-meta">
-        Last updated <time datetime="2026-11-07">7 November 2026</time> ·
-        Applies to <strong>pathayam.app</strong>, <strong>demo.pathayam.app</strong>,
-        and the hosted service.
-      </p>
+      <ul class="banner__meta">
+        <li>Last updated <time datetime="2026-11-07">7 November 2026</time></li>
+        <li>Applies to <strong>pathayam.app</strong>, <strong>demo.pathayam.app</strong>,
+        and the hosted service.</li>
+      </ul>
+    </div>
+  </section>
 
-      <div class="note">
+  <section class="legal">
+    <div class="wrap wrap--prose legal__body">
+      <div class="note legal__short">
         <p><strong>The short version.</strong></p>
         <ul class="checks">
           <li>The software is free to run yourself for any noncommercial purpose.</li>
@@ -327,7 +331,7 @@
         service, <!--email_off--><a href="mailto:privacy@pathayam.app">privacy@pathayam.app</a><!--/email_off-->
         for anything about data. 
       </p>
-      <p class="foot__note" style="margin-top:2rem">
+      <p class="legal__also">
         See also the <a href="privacy.html">privacy policy</a>.
       </p>
     </div>
@@ -336,54 +340,33 @@
 </main>
 
 <footer class="foot">
-  <div class="wrap">
-    <div class="foot__grid">
-      <div>
-        <h2 class="foot__h">Pathayam</h2>
-        <ul>
-          <li><a href="features.html">Features</a></li>
-          <li><a href="pricing.html">Pricing</a></li>
-          <li><a href="demo.html">Live demo</a></li>
-        </ul>
-      </div>
-      <div>
-        <h2 class="foot__h">Reference</h2>
-        <ul>
-          <li><a href="guides.html">Documentation</a></li>
-          <li><a href="api.html">API guide</a></li>
-          <li><a href="roadmap.html">Roadmap</a></li>
-          <li><a href="https://github.com/flaxvin/Pathayam">Source on GitHub</a></li>
-          <li><a href="terms.html">Terms</a></li>
-          <li><a href="privacy.html">Privacy</a></li>
-        </ul>
-      </div>
-      <div>
-        <h2 class="foot__h">Built with</h2>
-        <ul>
-          <li>TypeScript on Node 24+</li>
-          <li>node:sqlite · node:http</li>
-          <li>Zero runtime dependencies</li>
-        </ul>
-      </div>
-      <div>
-        <h3 class="foot__h">The name</h3>
-        <ul>
-          <li><span class="mal">പത്തായം</span>: the wooden chest
-              that held a Kerala household's harvest, filled once and
-              drawn from with care.</li>
-        </ul>
-      </div>
-    </div>
+  <div class="wrap foot__inner">
+    <p class="foot__name"><span class="mal" lang="ml">പത്തായം</span>The wooden chest that held a Kerala household&rsquo;s harvest, filled once and drawn from with care.</p>
+    <nav aria-label="Site">
+      <ul class="foot__links">
+        <li><a href="features.html">Features</a></li>
+        <li><a href="pricing.html">Pricing</a></li>
+        <li><a href="demo.html">Live demo</a></li>
+        <li><a href="guides.html">Documentation</a></li>
+        <li><a href="api.html">API guide</a></li>
+        <li><a href="roadmap.html">Roadmap</a></li>
+        <li><a href="https://github.com/flaxvin/Pathayam">Source on GitHub</a></li>
+        <li><a href="terms.html">Terms</a></li>
+        <li><a href="privacy.html">Privacy</a></li>
+      </ul>
+    </nav>
     <p class="foot__note">
-      Run it yourself and your data stays on your machine: nothing is sent
-      anywhere unless you connect an AI app yourself. Hosted plans are available on request. Every figure and name in the screenshots
-      is fictional.
+      Built with TypeScript on Node 24 or later, on node:sqlite and node:http,
+      with zero runtime dependencies. Run it yourself and your data stays on
+      your machine: nothing is sent anywhere unless you connect an AI app
+      yourself. Hosted plans are available on request. Every figure and name in
+      the screenshots is fictional.
     </p>
     <p class="foot__legal">
-      A product of <a href="https://flaxvin.tech">Flaxvin Technologies</a> ·
-      <a href="terms.html">Terms of service</a> ·
-      <a href="privacy.html">Privacy policy</a> ·
-      <a href="terms.html#software">Licence</a> ·
+      <span>A product of <a href="https://flaxvin.tech">Flaxvin Technologies</a></span>
+      <a href="terms.html">Terms of service</a>
+      <a href="privacy.html">Privacy policy</a>
+      <a href="terms.html#software">Licence</a>
       <a href="https://github.com/flaxvin/Pathayam">Source</a>
     </p>
   </div>

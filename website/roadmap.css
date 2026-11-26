@@ -1,0 +1,75 @@
+/* Hallmark · page stylesheet for roadmap.html, read after style.css · system in DESIGN.md */
+/* Hallmark · waive 77 · Request a feature is two owner lines and the issue/demo actions, set as a display-size statement over a hairline · the roadmap close carries no visual of its own and inventing one would add content the owner did not write */
+/*
+ * The roadmap is an index. Every section is the home page's split: the head
+ * sits on the left (sticky on wide screens), the rows on the right, parted by
+ * hairlines. Planned rows lead with their date and size; shipped rows lead with
+ * the month they shipped, in a green pill so done and to-do read apart.
+ */
+
+/* ------------------------------------------------------------------ hero -- */
+.rm-hero { padding-block: var(--space-2xl); }
+.rm-hero__grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-2xl); align-items: end; }
+.rm-hero h1 { max-width: 14ch; font-size: var(--text-display); line-height: 1.02; }
+.rm-hero__side { display: grid; gap: var(--space-lg); justify-items: start; }
+.rm-hero__sub { max-width: 44ch; font-size: var(--text-lead); line-height: 1.5; color: var(--color-ink-2); }
+.rm-hero__fine { font-size: var(--text-sm); color: var(--color-muted); }
+
+/* ------------------------------------------------- the split, every section -- */
+.rm-split { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: var(--space-2xl); align-items: start; }
+.rm-split__head { position: sticky; top: calc(64px + var(--space-xl)); }
+.rm-split__head .lede { font-size: var(--text-md); }
+.rm-read { padding-top: 0; }
+.rm-read .rm-split { padding-top: var(--space-xl); border-top: 1px solid var(--color-rule-2); }
+.rm-read__body { max-width: 62ch; }
+
+/* --------------------------------------------- recently shipped: the log -- */
+.log { padding: 0; list-style: none; border-top: 1px solid var(--color-rule-2); }
+.log__row { display: grid; grid-template-columns: minmax(0, 6rem) minmax(0, 4fr) minmax(0, 7fr); gap: var(--space-xs) var(--gap-columns); align-items: baseline; padding-block: var(--space-lg); border-bottom: 1px solid var(--color-rule); }
+.log__when { justify-self: start; }
+.log__title { font-weight: 600; line-height: 1.35; color: var(--color-ink); }
+.log__body { font-size: var(--text-sm); line-height: 1.6; color: var(--color-ink-2); }
+.log__body a { font-weight: 600; }
+.pill--ship { background: color-mix(in oklab, var(--color-positive) 14%, var(--color-paper)); color: var(--color-positive); }
+
+/* ------------------------------------------- planned and longshots: road -- */
+.road { padding: 0; list-style: none; border-top: 1px solid var(--color-rule-2); }
+.road__row { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 8fr); gap: var(--space-sm) var(--gap-columns); padding-block: var(--space-xl); border-bottom: 1px solid var(--color-rule); }
+.road__when { display: grid; gap: var(--space-xs); align-content: start; justify-items: start; }
+.road__size { font-size: var(--text-sm); color: var(--color-ink-2); white-space: normal; }
+.road__text { display: grid; gap: var(--space-sm); color: var(--color-ink-2); }
+.road__text h3 { font-size: var(--text-title); line-height: 1.2; color: var(--color-ink); }
+.road__text p { max-width: 62ch; }
+.road__text strong { color: var(--color-ink); }
+
+/* ------------------------------------------------ considered and set aside -- */
+.aside { margin: 0; border-top: 1px solid var(--color-rule-2); }
+.aside > div { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 5fr); gap: var(--space-xs) var(--gap-columns); padding-block: var(--space-xl); border-bottom: 1px solid var(--color-rule); }
+.aside dt { font-family: var(--font-display); font-weight: var(--display-weight); font-size: var(--text-title); line-height: 1.2; letter-spacing: -0.015em; color: var(--color-ink); }
+.aside dd { margin: 0; color: var(--color-ink-2); }
+
+/* -------------------------------------------------------- request a feature -- */
+.rm-ask { padding-bottom: var(--section-gap); }
+.rm-ask__grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-xl) var(--space-2xl); align-items: end; padding-top: var(--space-xl); border-top: 1px solid var(--color-rule-2); }
+.rm-ask__grid h2 { max-width: 16ch; font-size: var(--text-display-s); line-height: 1.05; }
+.rm-ask__grid .lede { max-width: 48ch; }
+.rm-ask__grid .actions { justify-content: flex-end; }
+
+/* -------------------------------------------------------- tablet and phone -- */
+@media (max-width: 75rem) {
+  .log__row { grid-template-columns: minmax(0, 6rem) minmax(0, 1fr); }
+  .log__body { grid-column: 2; }
+}
+@media (max-width: 60rem) {
+  .rm-hero__grid, .rm-split, .rm-ask__grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
+  .rm-split__head { position: static; }
+  .rm-ask__grid .actions { justify-content: flex-start; }
+}
+@media (max-width: 40rem) {
+  .rm-hero { padding-block: var(--space-xl); }
+  .rm-hero h1 { font-size: clamp(2.25rem, 9vw + 0.25rem, 2.75rem); }
+  .log__row { grid-template-columns: minmax(0, 1fr); gap: var(--space-xs); padding-block: var(--space-md); }
+  .log__body { grid-column: auto; }
+  .road__row, .aside > div { grid-template-columns: minmax(0, 1fr); padding-block: var(--space-lg); }
+  .road__when { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-xs) var(--space-sm); }
+}
