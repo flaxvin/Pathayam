@@ -1,1 +1,95 @@
 /* Hallmark · page stylesheet for guides.html, read after style.css · system in DESIGN.md */
+/* Hallmark · waive 49b · the API reference link sits mid-sentence in a note in the Connect an AI guide · inline links in the guides' running prose wrap with their sentence; nowrap would push a 375px line past its column */
+/* Hallmark · dismissed 77 · guides.html is a reference page, not a landing strip: one Banner, one docs body holding 48 guides in 9 parts, one closing band */
+/*
+ * Guides is a reference page: a Banner hero (the head and one line beside it),
+ * then the shared .docs layout, a sticky rail of contents beside one long
+ * column. Each part opens with a section head; each guide inside it is a row
+ * parted from the next by a hairline. Running text keeps a reading measure;
+ * screenshots and the one table take the full column.
+ */
+
+/* ---------------------------------------------------------------- banner -- */
+.banner { padding-block: var(--space-2xl) var(--space-xl); border-bottom: 1px solid var(--color-rule); }
+.banner__grid { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 6fr); gap: var(--space-lg) var(--space-2xl); align-items: end; }
+.banner__title { max-width: 12ch; font-size: var(--text-display-s); line-height: 1.04; text-wrap: balance; }
+.banner__side { display: grid; gap: var(--space-lg); justify-items: start; }
+.banner__lede { max-width: 52ch; font-size: var(--text-lead); line-height: 1.5; color: var(--color-ink-2); }
+
+/* -------------------------------------------------------- the docs body -- */
+.guides { padding-block: var(--space-2xl) var(--section-gap-s); }
+.guides .docs { grid-template-columns: minmax(0, 18rem) minmax(0, 1fr); }
+
+/* The rail: part names as plain labels, the guides under them. */
+.docs__rail .rail-part { margin-top: var(--space-md); padding: 0 var(--space-xs) var(--space-2xs); font-size: var(--text-sm); font-weight: 600; color: var(--color-ink); }
+.docs__rail .rail-part:first-child { margin-top: 0; }
+.docs__rail a { transition: background-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out); }
+
+/* A part of the guides opens with a section head. */
+.guide-part { margin-top: var(--section-gap-s); padding-top: var(--space-lg); border-top: 1px solid var(--color-rule-2); font-size: var(--text-section); max-width: 22ch; }
+.guide-part:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* Each guide is a row, parted from the last by a hairline. */
+.guide { padding-top: var(--space-2xl); margin-top: var(--space-2xl); border-top: 1px solid var(--color-rule); color: var(--color-ink-2); }
+.guide-part + .guide { margin-top: var(--space-lg); padding-top: 0; border-top: 0; }
+.guide > h3 { max-width: 30ch; font-size: var(--text-2xl); line-height: 1.15; color: var(--color-ink); }
+.guide > * + * { margin-top: var(--space-md); }
+.guide > h3 + * { margin-top: var(--space-lg); }
+.guide > h4 { margin-top: var(--space-xl); max-width: 40ch; font-size: var(--text-lg); line-height: 1.3; color: var(--color-ink); }
+.guide > h4 + * { margin-top: var(--space-sm); }
+.guide > :is(p, ul, ol) { max-width: 56ch; }
+.guide > :is(.note, .warn, pre) { max-width: 44rem; }
+.guide strong, .guide b { color: var(--color-ink); }
+.guide > ul, .guide > ol:not(.steps) { display: grid; gap: var(--space-xs); padding-left: var(--space-lg); }
+.guide li > ul, .guide li > ol { display: grid; gap: var(--space-2xs); margin-top: var(--space-xs); padding-left: var(--space-lg); }
+.guide samp { font-family: var(--font-outlier); font-size: 0.88em; color: var(--color-ink); }
+.guide .table-scroll { margin-top: var(--space-lg); }
+.guide .table-scroll + * { margin-top: var(--space-lg); }
+
+/* Numbered steps: rows parted by hairlines, the number in its own column. */
+.steps { display: grid; padding: 0; list-style: none; counter-reset: step; border-bottom: 1px solid var(--color-rule); }
+.steps > li { display: grid; grid-template-columns: var(--space-xl) minmax(0, 1fr); padding-block: var(--space-sm); border-top: 1px solid var(--color-rule); counter-increment: step; }
+.steps > li::before { content: counter(step); font-family: var(--font-display); font-weight: var(--display-weight); font-variant-numeric: tabular-nums; color: var(--color-muted); }
+
+/* Screenshots take the column; two side by side where a guide shows a pair. */
+.shots { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-xl) var(--space-lg); }
+.guide > .shots { margin-top: var(--space-xl); }
+.shots:not(.cols2) { max-width: 52rem; }
+.shots.cols2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.shots.cols2 > .shot:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.shots .shot > figcaption { padding-inline: var(--space-xs); }
+
+/* ------------------------------------------------------ try it, the end -- */
+.tryit__grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-lg) var(--space-2xl); align-items: end; }
+.tryit__grid .h-sec { color: var(--color-ink); }
+.tryit__side { display: grid; gap: var(--space-lg); justify-items: start; }
+.tryit__side .lede { margin-top: 0; }
+
+/* ----------------------------------------------------------- the stacks -- */
+@media (max-width: 62rem) {
+  .guides .docs { grid-template-columns: minmax(0, 1fr); }
+  .docs__rail { padding: var(--space-md); }
+  .docs__rail > ol { display: block; columns: 2 16rem; column-gap: var(--space-lg); }
+  .docs__rail > ol > li { break-inside: avoid; }
+  .docs__rail > ol > .rail-part { break-after: avoid; }
+}
+@media (max-width: 52rem) {
+  .banner__grid, .tryit__grid { grid-template-columns: minmax(0, 1fr); align-items: start; }
+}
+@media (max-width: 48rem) {
+  .shots.cols2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 40rem) {
+  .banner { padding-block: var(--space-xl) var(--space-lg); }
+  .guides { padding-top: var(--space-xl); }
+  .docs__rail { padding: var(--space-sm); }
+  .docs__rail a { padding-inline: var(--space-2xs); }
+  .docs__rail .rail-part { padding-inline: var(--space-2xs); }
+  .guide { padding-top: var(--space-xl); margin-top: var(--space-xl); }
+  .guide-part { margin-top: var(--space-2xl); }
+  .guide > h3 { font-size: var(--text-xl); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs__rail a { transition: none; }
+}
