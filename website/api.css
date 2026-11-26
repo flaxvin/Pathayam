@@ -1,0 +1,152 @@
+/* Hallmark · page stylesheet for api.html, read after style.css · system in DESIGN.md */
+/* Hallmark · waive 71 · the flagged heads are .ep__body side labels (Scope, Parameters, Responses, Example) in a 7.5rem label column, their content sits beside them, so the gate measures label to label · api.html sets each endpoint's parts as a label beside its content, a reference convention */
+/*
+ * The API reference: a Banner hero, then the basics as a split (the rules on
+ * the left, the units and scopes on the right), then the shared .docs layout
+ * with its sticky rail beside eighteen groups of endpoints.
+ *
+ * An endpoint is a <details> row parted from the next by a hairline, not a
+ * card: the method, the path in mono, and one line on what it does. Opened,
+ * its body sets each part as a label beside its content. Method and status
+ * badges take the palette's own roles (positive, accent, warn), mixed into
+ * paper for their grounds; no colour here is a literal.
+ */
+
+/* Text tints for the badges: each role pulled a fifth toward ink, so the
+   small mono labels clear 4.5:1 on their soft grounds in both themes. */
+:root { --api-warn-ink: color-mix(in oklab, var(--color-warn) 78%, var(--color-ink)); --api-pos-ink: color-mix(in oklab, var(--color-positive) 85%, var(--color-ink)); --api-pos-soft: color-mix(in oklab, var(--color-positive) 13%, var(--color-paper-3)); }
+
+/* ------------------------------------------------------------------ hero -- */
+.api-hero { padding-block: var(--space-2xl) var(--space-xl); }
+.api-hero .wrap { display: grid; gap: var(--space-lg); justify-items: start; }
+.api-hero h1 { max-width: 19ch; font-size: var(--text-display-s); line-height: 1.04; }
+.api-hero .lede { margin-top: 0; max-width: 62ch; }
+
+/* ---------------------------------------------------------------- basics -- */
+.basics { padding-block: var(--space-xl) var(--space-2xl); border-top: 1px solid var(--color-rule); }
+.basics__grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-2xl); align-items: start; }
+.basics__rows { display: grid; }
+.basics__row { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 9fr); gap: var(--space-xs) var(--space-lg); padding-block: var(--space-lg); border-top: 1px solid var(--color-rule); }
+.basics__row:first-child { padding-top: 0; border-top: 0; }
+.basics__row h3 { grid-row: span 3; font-size: var(--text-lg); }
+.basics__row p { grid-column: 2; color: var(--color-ink-2); }
+.basics__row p + p { margin-top: var(--space-xs); }
+.basics__side { display: grid; gap: var(--space-md); }
+.basics__side h3 { margin-top: var(--space-sm); font-size: var(--text-lg); }
+.basics__side > p { font-size: var(--text-sm); color: var(--color-ink-2); }
+
+/* ------------------------------------------------------------- reference -- */
+.api-ref { padding-block: var(--space-2xl) var(--section-gap-s); background: var(--color-paper); border-top: 1px solid var(--color-rule); }
+.api-col { display: grid; gap: var(--space-3xl); }
+
+.api-group { display: grid; gap: var(--space-md); scroll-margin-top: calc(64px + var(--space-lg)); }
+.api-group > h2 { max-width: 22ch; font-size: var(--text-section); }
+.api-group > h3 { margin-top: var(--space-lg); font-size: var(--text-title); }
+.api-group > p { color: var(--color-ink-2); }
+.api-group > h2 + p { font-size: var(--text-lead); line-height: 1.5; max-width: 60ch; }
+.api-group > .table-scroll { margin-top: var(--space-xs); }
+.api-group > .note { margin-block: var(--space-xs); }
+#ai-changes { scroll-margin-top: calc(64px + var(--space-lg)); }
+
+.steps { display: grid; gap: var(--space-xs); padding-left: var(--space-lg); color: var(--color-ink-2); }
+.steps li::marker { font-family: var(--font-outlier); color: var(--color-muted); }
+
+/* -------------------------------------------------------------- endpoint -- */
+.api-group > .ep:first-of-type { margin-top: var(--space-sm); }
+.ep { border-top: 1px solid var(--color-rule-2); }
+.ep + .ep { margin-top: calc(-1 * var(--space-md)); }
+.ep:last-of-type { border-bottom: 1px solid var(--color-rule-2); }
+.ep + :not(.ep) { margin-top: var(--space-sm); }
+
+.ep > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-xs) var(--space-md); min-height: 56px; padding: var(--space-sm) var(--space-xs); list-style: none; cursor: pointer; border-radius: var(--radius-input); transition: background-color var(--dur-short) var(--ease-out); }
+.ep > summary::-webkit-details-marker { display: none; }
+.ep > summary:hover { background: var(--color-paper-2); }
+.ep > summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+.ep > summary::after { content: "+"; margin-left: auto; font-family: var(--font-outlier); font-size: var(--text-lg); line-height: 1; color: var(--color-muted); transition: transform var(--dur-short) var(--ease-out); }
+.ep[open] > summary::after { transform: rotate(45deg); }
+.ep__path { font-family: var(--font-outlier); font-size: var(--text-md); font-weight: 400; color: var(--color-ink); overflow-wrap: anywhere; }
+.ep__sum { flex: 1 1 12rem; min-width: 0; font-size: var(--text-sm); color: var(--color-ink-2); }
+.ep > summary .verb + .verb { margin-left: calc(var(--space-2xs) - var(--space-md)); }
+
+.ep__body { display: grid; gap: var(--space-lg); padding: var(--space-xs) var(--space-xs) var(--space-xl); }
+.ep__body > p { max-width: 65ch; color: var(--color-ink-2); }
+.ep__body > div { display: grid; grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr); gap: var(--space-xs) var(--space-lg); align-items: baseline; }
+.ep__body > div > h3 { font-family: var(--font-body); font-size: var(--text-sm); font-weight: 600; letter-spacing: 0; line-height: 1.5; color: var(--color-ink); }
+.ep__body > div > :not(h3) { grid-column: 2; }
+.ep__body > div > p { color: var(--color-ink-2); }
+.ep__body pre { min-width: 0; }
+
+/* ----------------------------------------------------------------- badges -- */
+/* The method: tabular mono on a quiet ground. GET reads, POST changes. */
+.verb { display: inline-block; min-width: 3.25rem; padding: var(--space-3xs) var(--space-2xs); border-radius: 6px; font-family: var(--font-outlier); font-size: var(--text-xs); font-weight: 600; line-height: 1.5; text-align: center; white-space: nowrap; }
+.verb--get { background: var(--api-pos-soft); color: var(--api-pos-ink); }
+.verb--post { background: var(--color-accent-soft); color: var(--color-accent); }
+.verb + .verb { margin-left: var(--space-2xs); }
+td .verb { vertical-align: baseline; }
+td:has(> .verb) { white-space: nowrap; }
+
+/* Required and optional, set as words, not colour alone. */
+.req, .opt { font-size: var(--text-xs); font-weight: 600; white-space: nowrap; }
+.req { color: var(--api-warn-ink); }
+.opt { color: var(--color-muted); font-weight: 400; }
+
+/* Responses: the status code in mono, a tint by class, then the meaning. */
+.resp { display: grid; gap: var(--space-xs); padding: 0; list-style: none; font-size: var(--text-sm); color: var(--color-ink-2); }
+.resp li { padding-left: calc(3.25rem + var(--space-sm)); text-indent: calc(-1 * (3.25rem + var(--space-sm))); }
+.resp .status { margin-right: var(--space-3xs); }
+.status { display: inline-block; min-width: 3.25rem; padding: var(--space-3xs) var(--space-2xs); border-radius: 6px; font-family: var(--font-outlier); font-size: var(--text-xs); line-height: 1.5; text-align: center; text-indent: 0; font-variant-numeric: tabular-nums; }
+.status b { font-weight: 600; }
+.status--ok { background: var(--api-pos-soft); color: var(--api-pos-ink); }
+.status--redir { background: var(--color-accent-soft); color: var(--color-accent); }
+.status--err { background: var(--color-warn-soft); color: var(--api-warn-ink); }
+
+/* Tables of routes: path cells stay readable, descriptions wrap. */
+.api-group table td { min-width: 0; }
+.api-group table td:nth-child(2) code { white-space: nowrap; }
+.api-group thead th:empty { padding-inline: 0; }
+.api-group td.none { color: var(--color-muted); }
+
+/* ------------------------------------------------------------ the close -- */
+.api-out { border-top: 1px solid var(--color-rule); }
+.callout { display: grid; gap: var(--space-xl); }
+.callout h2 { max-width: 22ch; font-size: var(--text-display-s); line-height: 1.04; }
+.callout__side { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: var(--space-lg) var(--space-2xl); padding-top: var(--space-lg); border-top: 1px solid var(--color-rule); }
+.callout__side p { max-width: 46ch; font-size: var(--text-lead); line-height: 1.5; color: var(--color-ink-2); }
+
+/* ---------------------------------------------------------------- narrow -- */
+@media (max-width: 62rem) {
+  .basics__grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
+  .api-col { gap: var(--space-2xl); }
+}
+@media (max-width: 40rem) {
+  .api-hero { padding-block: var(--space-xl) var(--space-lg); }
+  .basics__row { grid-template-columns: minmax(0, 1fr); }
+  .basics__row h3 { grid-row: auto; }
+  .basics__row p { grid-column: 1; }
+  .ep > summary { padding-inline: 0; }
+  .ep__sum { order: 1; flex-basis: 100%; }
+  .ep__body { padding-inline: 0; }
+  .ep__body > div { grid-template-columns: minmax(0, 1fr); }
+  .ep__body > div > :not(h3) { grid-column: 1; }
+  .api-group table td:nth-child(2) code { white-space: normal; overflow-wrap: anywhere; }
+
+  /* Route tables restack on a phone: method, path and token on one line,
+     then what it does, then its parameters under their own column name. */
+  .api-group table:has(td > .verb) thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .api-group table:has(td > .verb) tbody tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: var(--space-2xs) var(--space-sm); padding-block: var(--space-sm); border-bottom: 1px solid var(--color-rule); }
+  .api-group table:has(td > .verb) tbody td { display: block; padding: 0; border: 0; min-width: 0; }
+  .api-group table:has(td > .verb) tbody td:nth-child(4) { grid-column: 1 / -1; grid-row: 3; font-size: var(--text-xs); }
+  .api-group table:has(td > .verb) tbody td:nth-child(4)::before { content: "Parameters: "; font-weight: 600; color: var(--color-ink); }
+  .api-group table:has(td > .verb) tbody td.none { display: none; }
+  .api-group table:has(td > .verb) tbody td:nth-child(5) { grid-column: 1 / -1; grid-row: 2; }
+
+  /* Parameter tables restack the same way: name, type and need, then the meaning. */
+  .ep__body table:has(td > .opt, td > .req) thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ep__body table:has(td > .opt, td > .req) tbody tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-sm); padding-block: var(--space-sm); border-bottom: 1px solid var(--color-rule); }
+  .ep__body table:has(td > .opt, td > .req) tbody td { display: block; padding: 0; border: 0; min-width: 0; }
+  .ep__body table:has(td > .opt, td > .req) tbody td:nth-child(4) { flex-basis: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ep > summary, .ep > summary::after { transition: none; }
+}
