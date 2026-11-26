@@ -90,9 +90,9 @@
         var gst = block.parentElement.querySelector("[data-gst]");
         if (gst) {
           gst.textContent = cycle === "y"
-            ? "+ 18% GST · " + inr(Math.round(amount * 1.18)) + "/year inclusive · "
+            ? "+ 18% GST, " + inr(Math.round(amount * 1.18)) + "/year inclusive, "
               + inr(monthly) + "/month billed monthly"
-            : "+ 18% GST · " + inr(Math.round(amount * 1.18)) + "/month inclusive";
+            : "+ 18% GST, " + inr(Math.round(amount * 1.18)) + "/month inclusive";
         }
       });
 

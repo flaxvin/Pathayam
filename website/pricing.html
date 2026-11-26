@@ -51,20 +51,19 @@
 </header>
 
 <main id="main">
-  <section class="sec sec--tight">
-    <div class="wrap center">
-      <p class="eyebrow">Pricing</p>
-      <h1 style="font-size:var(--step-5);max-width:20ch;margin-inline:auto">Run it yourself free, or let us run it</h1>
-      <p class="lede" style="font-size:var(--step-2);max-width:54ch">
-        The source is public and always free to run yourself. If you'd rather
+  <section class="hero pr-hero" aria-labelledby="h-pricing">
+    <div class="wrap pr-hero__grid">
+      <h1 id="h-pricing">Run it yourself free, or let us run it</h1>
+      <p class="pr-hero__sub">
+        The source is public and always free to run yourself. If you’d rather
         not manage hosting, we can do it for you.
       </p>
     </div>
   </section>
 
-  <section class="sec sec--tight">
+  <section class="plans" aria-labelledby="h-plans">
     <div class="wrap">
-      <h2 class="sr-only">Plans</h2>
+      <h2 class="sr-only" id="h-plans">Plans</h2>
       <div class="switcher" role="group" aria-label="Pricing options">
         <fieldset class="seg">
           <legend class="seg__legend">Billing</legend>
@@ -98,164 +97,187 @@
         </p>
       </div>
 
-        <div class="tiers">
-      <div class="tier">
-        
-        <h3>Self-host</h3>
-        <div class="tier__price">
-          <span class="tier__amt">Free</span><span class="tier__per">forever</span>
-        </div>
-        <p class="tier__yr">Source available · noncommercial</p>
-        <p class="tier__for">You run it. One container, your machine, your data. Noncommercial use.</p>
-        <ul>
-          <li>Every feature, no limits</li>
-          <li>Unlimited household members</li>
-          <li>Gmail ingestion, your own Google project</li>
-          <li>Complete export, any time</li>
-          <li class="no">You handle backups and updates</li>
-          <li class="no">Support is the issue tracker</li>
-        </ul>
-        <a class="btn btn--ghost" href="https://github.com/flaxvin/Pathayam">Get the source</a>
-        <p class="tier__gst" style="text-align:center;margin-top:.5rem"><a href="guides.html">Read the guides</a></p>
-      </div>
-      <div class="tier">
-        
-        <h3>Solo</h3>
-        <div class="tier__price"
-             data-od-m="249" data-od-y="1999"
-             data-ao-m="419" data-ao-y="3349">
-          <span class="tier__amt" data-amt>₹249</span><span class="tier__per" data-per>/month</span>
-        </div>
-        <p class="tier__gst" data-gst>+ 18% GST · ₹294/month inclusive</p>
-        <p class="tier__for">One person, the whole budgeting engine.</p>
-        <ul>
-          <li>1 member</li>
-          <li>Budget engine, cards, rollover</li>
-          <li>Statement import, 12 banks</li>
-          <li>Gmail, with your own Google keys</li>
-          <li>30-day backup retention</li>
-          <li class="no">Loans, investments, net worth</li>
-          <li class="no">API tokens</li>
-          <li class="no">Connect an AI (Claude, ChatGPT, Gemini)</li>
-        </ul>
-        <a class="btn btn--primary" href="#request">Request an instance</a>
-      </div>
-      <div class="tier tier--pick">
-        <span class="tier__flag">Most households</span>
-        <h3>Household</h3>
-        <div class="tier__price"
-             data-od-m="499" data-od-y="3999"
-             data-ao-m="679" data-ao-y="5449">
-          <span class="tier__amt" data-amt>₹499</span><span class="tier__per" data-per>/month</span>
-        </div>
-        <p class="tier__gst" data-gst>+ 18% GST · ₹589/month inclusive</p>
-        <p class="tier__for">The plan most households choose, with everything for the whole household.</p>
-        <ul>
-          <li>Up to 5 members</li>
-          <li>Everything in Solo</li>
-          <li>Loans, investments, net worth</li>
-          <li>90-day backup retention</li>
-          <li>Monthly verified-restore report</li>
-          <li>API tokens</li>
-          <li>Connect an AI: Claude, ChatGPT, Gemini</li>
-        </ul>
-        <a class="btn btn--primary" href="#request">Request an instance</a>
-      </div>
-      <div class="tier">
-        
-        <h3>Power</h3>
-        <div class="tier__price"
-             data-od-m="1099" data-od-y="8799"
-             data-ao-m="1269" data-ao-y="9299">
-          <span class="tier__amt" data-amt>₹1,099</span><span class="tier__per" data-per>/month</span>
-        </div>
-        <p class="tier__gst" data-gst>+ 18% GST · ₹1,297/month inclusive</p>
-        <p class="tier__for">For people who want everything self-hosting offers, without the maintenance.</p>
-        <ul>
-          <li>Unlimited members</li>
-          <li>Everything in Household</li>
-          <li>Custom domain</li>
-          <li>1-year backup retention</li>
-          <li>Same-day support</li>
-          <li>Priority on new bank parsers</li>
-          <li>Early access to what is being built</li>
-        </ul>
-        <a class="btn btn--primary" href="#request">Request an instance</a>
-      </div>
-      </div>
-      <p class="waitlist__note center" style="margin-top:1.5rem;max-width:60ch;margin-inline:auto">
-        When you request an instance, we'll contact you to agree the region and
-        plan before anything is deployed or charged. Customised plans are available too: if none of these fits,
-        tell us what you need, such as more members, a longer backup window or a
-        different set of modules, and we'll agree a plan around it.
-      </p>
-      <p class="warn" style="max-width:56ch;margin:1rem auto 0">
-        When a plan ends, for any reason, your data is deleted five days later,
-        including backups, and cannot be recovered. Please export it before then:
-        one endpoint returns all of it, on every plan.
-      </p>
-    </div>
-  </section>
-
-  <section class="sec sec--tight">
-    <div class="wrap">
-      <div class="addon">
-        <div>
-          <h3>Forwarding address <span class="pill pill--w">add-on</span></h3>
-          <p>
-            Get an address like <code>hh1.k3j5…@in.pathayam.app</code> and set one filter
-            in your mail client. Bank alerts and statement emails land in your review
-            queue within seconds of arriving, without this app ever having access to
-            your inbox.
-          </p>
-          <p style="margin-top:0.8rem">
-            <strong>Nothing forwarded is kept beyond 90 days.</strong> A message is
-            parsed into review rows and is not kept. Its log line, and a locked
-            statement waiting for its password, are deleted on that schedule,
-            whatever happens. The 90-day limit is fixed and cannot be changed, so
-            your bank mail never builds up on our servers.
-          </p>
-        </div>
-        <div class="addon__price">
-          <div class="tier__price" style="justify-content:flex-end">
-            <span class="tier__amt">₹100</span><span class="tier__per">/month</span>
-            <p class="tier__gst">+ 18% GST · ₹118/month inclusive</p>
+      <div class="tiers">
+        <div class="tier">
+          <div class="tier__head">
+            <h3>Self-host</h3>
           </div>
-          <p class="waitlist__note">On any hosted tier. Cancel it separately.</p>
+          <div class="tier__price">
+            <span class="tier__amt">Free</span><span class="tier__per">forever</span>
+          </div>
+          <ul class="tier__yr">
+            <li>Source available</li>
+            <li>Noncommercial</li>
+          </ul>
+          <p class="tier__for">You run it. One container, your machine, your data. Noncommercial use.</p>
+          <ul class="checks tier__list">
+            <li>Every feature, no limits</li>
+            <li>Unlimited household members</li>
+            <li>Gmail ingestion, your own Google project</li>
+            <li>Complete export, any time</li>
+            <li class="no">You handle backups and updates</li>
+            <li class="no">Support is the issue tracker</li>
+          </ul>
+          <div class="tier__act">
+            <a class="btn btn--ghost" href="https://github.com/flaxvin/Pathayam">Get the source</a>
+            <p class="tier__more"><a href="guides.html">Read the guides</a></p>
+          </div>
         </div>
+        <div class="tier">
+          <div class="tier__head">
+            <h3>Solo</h3>
+          </div>
+          <div class="tier__price"
+               data-od-m="249" data-od-y="1999"
+               data-ao-m="419" data-ao-y="3349">
+            <span class="tier__amt" data-amt>₹249</span><span class="tier__per" data-per>/month</span>
+          </div>
+          <p class="tier__gst" data-gst>+ 18% GST, ₹294/month inclusive</p>
+          <p class="tier__for">One person, the whole budgeting engine.</p>
+          <ul class="checks tier__list">
+            <li>1 member</li>
+            <li>Budget engine, cards, rollover</li>
+            <li>Statement import, 12 banks</li>
+            <li>Gmail, with your own Google keys</li>
+            <li>30-day backup retention</li>
+            <li class="no">Loans, investments, net worth</li>
+            <li class="no">API tokens</li>
+            <li class="no">Connect an AI (Claude, ChatGPT, Gemini)</li>
+          </ul>
+          <div class="tier__act">
+            <a class="btn btn--ghost" href="#request">Request an instance</a>
+          </div>
+        </div>
+        <div class="tier tier--pick">
+          <div class="tier__head">
+            <h3>Household</h3>
+            <span class="tier__flag">Most households</span>
+          </div>
+          <div class="tier__price"
+               data-od-m="499" data-od-y="3999"
+               data-ao-m="679" data-ao-y="5449">
+            <span class="tier__amt" data-amt>₹499</span><span class="tier__per" data-per>/month</span>
+          </div>
+          <p class="tier__gst" data-gst>+ 18% GST, ₹589/month inclusive</p>
+          <p class="tier__for">The plan most households choose, with everything for the whole household.</p>
+          <ul class="checks tier__list">
+            <li>Up to 5 members</li>
+            <li>Everything in Solo</li>
+            <li>Loans, investments, net worth</li>
+            <li>90-day backup retention</li>
+            <li>Monthly verified-restore report</li>
+            <li>API tokens</li>
+            <li>Connect an AI: Claude, ChatGPT, Gemini</li>
+          </ul>
+          <div class="tier__act">
+            <a class="btn btn--primary" href="#request">Request an instance</a>
+          </div>
+        </div>
+        <div class="tier">
+          <div class="tier__head">
+            <h3>Power</h3>
+          </div>
+          <div class="tier__price"
+               data-od-m="1099" data-od-y="8799"
+               data-ao-m="1269" data-ao-y="9299">
+            <span class="tier__amt" data-amt>₹1,099</span><span class="tier__per" data-per>/month</span>
+          </div>
+          <p class="tier__gst" data-gst>+ 18% GST, ₹1,297/month inclusive</p>
+          <p class="tier__for">For people who want everything self-hosting offers, without the maintenance.</p>
+          <ul class="checks tier__list">
+            <li>Unlimited members</li>
+            <li>Everything in Household</li>
+            <li>Custom domain</li>
+            <li>1-year backup retention</li>
+            <li>Same-day support</li>
+            <li>Priority on new bank parsers</li>
+            <li>Early access to what is being built</li>
+          </ul>
+          <div class="tier__act">
+            <a class="btn btn--ghost" href="#request">Request an instance</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="terms-row">
+        <p class="terms-row__note">
+          When you request an instance, we’ll contact you to agree the region and
+          plan before anything is deployed or charged. Customised plans are available too: if none of these fits,
+          tell us what you need, such as more members, a longer backup window or a
+          different set of modules, and we’ll agree a plan around it.
+        </p>
+        <p class="warn">
+          When a plan ends, for any reason, your data is deleted five days later,
+          including backups, and cannot be recovered. Please export it before then:
+          one endpoint returns all of it, on every plan.
+        </p>
       </div>
     </div>
   </section>
 
-  <section class="sec sec--band" id="request">
-    <div class="wrap center">
-      <h2 class="h-sec">Request an instance</h2>
-      <p class="lede" style="margin-bottom:1.75rem;max-width:56ch;margin-inline:auto">
-        Leave your email and we'll contact you to agree the region and plan.
-        Nothing is deployed or charged until the plan is agreed.
-      </p>
+  <section class="sec addon" aria-labelledby="h-addon">
+    <div class="wrap addon__grid">
+      <div class="addon__text">
+        <div class="addon__head">
+          <h3 id="h-addon" class="addon__h">Forwarding address</h3>
+          <span class="pill pill--w">add-on</span>
+        </div>
+        <p>
+          Get an address like <code>hh1.k3j5…@in.pathayam.app</code> and set one filter
+          in your mail client. Bank alerts and statement emails land in your review
+          queue within seconds of arriving, without this app ever having access to
+          your inbox.
+        </p>
+        <p>
+          <strong>Nothing forwarded is kept beyond 90 days.</strong> A message is
+          parsed into review rows and is not kept. Its log line, and a locked
+          statement waiting for its password, are deleted on that schedule,
+          whatever happens. The 90-day limit is fixed and cannot be changed, so
+          your bank mail never builds up on our servers.
+        </p>
+      </div>
+      <div class="addon__price">
+        <div class="tier__price">
+          <span class="tier__amt">₹100</span><span class="tier__per">/month</span>
+        </div>
+        <p class="tier__gst">+ 18% GST, ₹118/month inclusive</p>
+        <p class="addon__fine">On any hosted tier. Cancel it separately.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec--band request" id="request" aria-labelledby="h-request">
+    <div class="wrap request__grid">
+      <div class="request__text">
+        <h2 class="h-sec" id="h-request">Request an instance</h2>
+        <p class="lede">
+          Leave your email and we’ll contact you to agree the region and plan.
+          Nothing is deployed or charged until the plan is agreed.
+        </p>
+      </div>
       <form class="waitlist" data-waitlist="pricing">
-          <input type="text" name="company" tabindex="-1" autocomplete="off"
-                 aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px">
+        <input type="text" name="company" tabindex="-1" autocomplete="off"
+               aria-hidden="true" class="waitlist__trap">
         <div class="waitlist__row">
           <label class="sr-only" for="wl-pricing">Email address</label>
           <input id="wl-pricing" type="email" name="email" placeholder="you@example.com" required autocomplete="email">
           <button class="btn btn--primary" type="submit">Request an instance</button>
         </div>
         <p class="waitlist__msg" data-waitlist-msg role="status"></p>
-        <p class="waitlist__note">No spam or newsletters. We'll reply to agree the details.</p>
+        <p class="waitlist__note">No spam or newsletters. We’ll reply to agree the details.</p>
       </form>
     </div>
   </section>
 
-  <section class="sec">
-    <div class="wrap">
-      <div class="center" style="margin-bottom:2.5rem">
-        <h2 class="h-sec">Frequently asked questions</h2>
+  <section class="sec faq-sec" aria-labelledby="h-faq">
+    <div class="wrap faq__grid">
+      <div class="faq__head">
+        <h2 class="h-sec" id="h-faq">Frequently asked questions</h2>
       </div>
       <div class="faq">
         <details open>
           <summary>Is anything missing from the self-hosted version?</summary>
+          <div class="faq__a">
           <p>No. Self-hosting includes every feature, and always will, including
           the ones a hosted tier leaves out. With a hosted plan, we take care of
           backups, updates and monitoring for you.</p>
@@ -265,23 +287,27 @@
           keeping the books of a company or a freelance practice) needs either a
           hosted plan or a commercial licence, which you can ask for at
           <!--email_off--><a href="mailto:hello@flaxvin.tech">hello@flaxvin.tech</a><!--/email_off-->.</p>
+          </div>
         </details>
         <details>
           <summary>How does Gmail work on a hosted plan?</summary>
+          <div class="faq__a">
           <p>Every plan, Solo included, can fetch bank alerts and statements from
           Gmail once you bring your own Google keys. You make a free OAuth client in
-          your own Google Cloud project (about ten minutes, <a href="guides.html#gmail-keys">step by step</a>),
+          your own Google Cloud project (about ten minutes, <a class="nowrap" href="guides.html#gmail-keys">step by step</a>),
           paste its client ID and secret into Settings, and connect. You consent to
           your own application, not ours; your instance only runs it.</p>
           <p>One set of keys can serve the whole household, or each member can use
           their own. The secret is encrypted before it is stored and never shown
-          again. We don't ask Google for access to your inbox under our own name,
+          again. We don’t ask Google for access to your inbox under our own name,
           because that needs an annual third-party security audit for any public
           service, and its cost would be added to every plan, including the ones
           where nobody uses Gmail.</p>
+          </div>
         </details>
         <details>
-                    <summary>Where does my data actually live?</summary>
+          <summary>Where does my data actually live?</summary>
+          <div class="faq__a">
           <p>Self-hosted, it lives wherever you put it.</p>
           <p>On a hosted plan, in its own database: one container and one file
           per customer, not a shared table with your row in it. The provider is
@@ -291,9 +317,11 @@
           hosted inside India. Another region is available on request; it may
           carry a different rate, and we will tell you what before anything is
           deployed.</p>
+          </div>
         </details>
         <details>
           <summary>What happens to my data if I stop paying?</summary>
+          <div class="faq__a">
           <p>It is deleted <strong>five days</strong> after the plan ends,
           whether you cancelled, let it expire, or a payment failed. The live
           database, every backup and every attachment go together. There is no
@@ -304,17 +332,21 @@
           <p>Please export first. One endpoint returns everything in an open format,
           at any time, on every plan, and the result is a SQLite file you can
           open with anything. The free version will load it straight back in.</p>
+          </div>
         </details>
         <details>
           <summary>Can I get my data out?</summary>
+          <div class="faq__a">
           <p>One endpoint returns everything in an open format, any time, on every
           plan. The database is a SQLite file you can open with anything. Cancelling
           gets you the file.</p>
           <p>This is deliberate, and it is tested: the test suite checks that the
           export is complete.</p>
+          </div>
         </details>
         <details id="faq-ondemand">
           <summary>What is &ldquo;on demand&rdquo;, and should I pay to avoid it?</summary>
+          <div class="faq__a">
           <p>Every hosted plan runs your household in its own container with its
           own database file. Both prices get the same software. The only
           difference is whether that container is allowed to stop.</p>
@@ -325,7 +357,7 @@
           budget a few times a day, so it is asleep most of the month, which is
           what keeps this price low.</p>
           <p><strong>Always on</strong> never stops. Every page is instant, and a
-          script calling the API never waits for a wake-up. It's a good choice if
+          script calling the API never waits for a wake-up. It’s a good choice if
           you check the budget many times a day, or if you automate against
           it.</p>
           <p>Nothing is lost while it sleeps. Your database is a file on a volume
@@ -334,32 +366,39 @@
           is using the app.</p>
           <p>You can switch between the two at any time, and the change takes
           effect on your next bill.</p>
+          </div>
         </details>
         <details>
           <summary>Is there a free trial?</summary>
+          <div class="faq__a">
           <p>There is a live demo with three years of data you can change however you
           like, and a free version you can run forever. Between them, you can find
           out whether Pathayam suits you before paying anything.</p>
           <p>That is also why there are no refunds: fees already paid are not
           returned, and cancelling stops the next charge rather than reversing the
           last one. Every paid feature can be tried first.</p>
+          </div>
         </details>
         <details>
           <summary>What happens if you stop running the service?</summary>
+          <div class="faq__a">
           <p>The source is public and the data format is documented, so at worst
           you move the file to your own machine and carry on. That is why the free
           tier stays unlimited: it means the hosted tier is safe to buy.</p>
+          </div>
         </details>
       </div>
     </div>
   </section>
 
-  <section class="sec">
-    <div class="wrap">
-      <div class="callout">
-        <h2>Try it before you decide</h2>
+  <section class="sec close" aria-labelledby="h-try">
+    <div class="wrap close__row">
+      <h2 class="h-sec" id="h-try">Try it before you decide</h2>
+      <div class="close__side">
         <p>Three years of invented data, every screen switched on, nothing to install.</p>
-        <a class="btn btn--primary" href="demo.html">Open the demo</a>
+        <div class="actions">
+          <a class="btn btn--primary" href="demo.html">Open the demo</a>
+        </div>
       </div>
     </div>
   </section>
