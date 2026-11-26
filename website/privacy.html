@@ -53,21 +53,24 @@
 
 <main id="main">
 
-  <section class="sec sec--tight">
+  <section class="banner">
     <div class="wrap wrap--prose">
-      <p class="eyebrow">Legal</p>
       <h1>Privacy policy</h1>
       <p class="lede">
         What Pathayam collects, why, how long it is kept, and how to get it back
         or have it deleted.
       </p>
-      <p class="legal-meta">
-        Last updated <time datetime="2026-11-07">7 November 2026</time> ·
-        Applies to <strong>pathayam.app</strong>, <strong>demo.pathayam.app</strong>,
-        and the hosted service.
-      </p>
+      <ul class="banner__meta">
+        <li>Last updated <time datetime="2026-11-07">7 November 2026</time></li>
+        <li>Applies to <strong>pathayam.app</strong>, <strong>demo.pathayam.app</strong>,
+        and the hosted service.</li>
+      </ul>
+    </div>
+  </section>
 
-      <div class="note">
+  <section class="legal">
+    <div class="wrap wrap--prose legal__body">
+      <div class="note legal__short">
         <p><strong>The short version.</strong></p>
         <ul class="checks">
           <li>This website counts visits with Cloudflare Web Analytics, which sets no cookies and does not follow you anywhere. The app itself has none.</li>
@@ -138,14 +141,14 @@
 
       <h2 id="request">Requesting an instance</h2>
       <p>When you ask us for an instance we store:</p>
-      <div class="table-scroll">
-        <table>
+      <div class="table-scroll" tabindex="0">
+        <table class="legal__table">
           <thead><tr><th>What</th><th>Why</th></tr></thead>
           <tbody>
-            <tr><td>Your email address</td><td>So a person can reply to you about setting it up.</td></tr>
-            <tr><td>Which plan you were looking at</td><td>So the reply is about the right one.</td></tr>
-            <tr><td>The page you submitted from</td><td>For the same reason.</td></tr>
-            <tr><td>A timestamp</td><td>To keep the list in order.</td></tr>
+            <tr><td data-label="What">Your email address</td><td data-label="Why">So a person can reply to you about setting it up.</td></tr>
+            <tr><td data-label="What">Which plan you were looking at</td><td data-label="Why">So the reply is about the right one.</td></tr>
+            <tr><td data-label="What">The page you submitted from</td><td data-label="Why">For the same reason.</td></tr>
+            <tr><td data-label="What">A timestamp</td><td data-label="Why">To keep the list in order.</td></tr>
           </tbody>
         </table>
       </div>
@@ -192,44 +195,44 @@
       </p>
 
       <h3>What we hold</h3>
-      <div class="table-scroll">
-        <table>
+      <div class="table-scroll" tabindex="0">
+        <table class="legal__table">
           <thead><tr><th>Category</th><th>Detail</th><th>Why</th></tr></thead>
           <tbody>
             <tr>
-              <td>Account identity</td>
-              <td>Your email address and name, and a profile picture where your sign-in method supplies one. How you sign in is your choice: a password, which we hold only as a scrypt hash and never in a form that can be read back; your own identity provider over OpenID Connect; or Google.</td>
-              <td>To sign you in and to attribute each change to a person.</td>
+              <td data-label="Category">Account identity</td>
+              <td data-label="Detail">Your email address and name, and a profile picture where your sign-in method supplies one. How you sign in is your choice: a password, which we hold only as a scrypt hash and never in a form that can be read back; your own identity provider over OpenID Connect; or Google.</td>
+              <td data-label="Why">To sign you in and to attribute each change to a person.</td>
             </tr>
             <tr>
-              <td>Household financial data</td>
-              <td>Everything you enter or import: accounts, balances, transactions, payees, envelopes, loans, holdings, a deposit's terms (rate, dates, principal), insurance policies, attachments such as receipts. Of a policy number, only the last four characters are kept.</td>
-              <td>It is the product. We process it to show it back to you.</td>
+              <td data-label="Category">Household financial data</td>
+              <td data-label="Detail">Everything you enter or import: accounts, balances, transactions, payees, envelopes, loans, holdings, a deposit's terms (rate, dates, principal), insurance policies, attachments such as receipts. Of a policy number, only the last four characters are kept.</td>
+              <td data-label="Why">It is the product. We process it to show it back to you.</td>
             </tr>
             <tr>
-              <td>Statement identity</td>
-              <td>Optional. Name, date of birth, PAN, mobile or card last-four, and where your banks need them an Axis or HDFC customer ID and the last six digits of an HSBC card, used to derive the password a bank sets on a statement PDF. Customer IDs are shown back to you masked.</td>
-              <td>So a statement opens without you typing a password every month.</td>
+              <td data-label="Category">Statement identity</td>
+              <td data-label="Detail">Optional. Name, date of birth, PAN, mobile or card last-four, and where your banks need them an Axis or HDFC customer ID and the last six digits of an HSBC card, used to derive the password a bank sets on a statement PDF. Customer IDs are shown back to you masked.</td>
+              <td data-label="Why">So a statement opens without you typing a password every month.</td>
             </tr>
             <tr>
-              <td>Tax figures</td>
-              <td>Optional, and entered by you on the tax screen: gross income for a financial year, the deductions you claim (80C, 80D, rent paid, HRA received, basic salary), tax deducted at source, the advance and self-assessment tax payments you record, and your own home-loan interest figure under 24(b) where you give one. A loan can also record what its house is used for (lived in or let out). Capital gains are read from sales already recorded in your portfolio, and home-loan interest from the loan's own schedule; nothing is fetched from anywhere.</td>
-              <td>To estimate tax under each regime and show which is lower. Held per person and per financial year, because income tax in India is assessed on an individual; one member's figures never enter another's estimate.</td>
+              <td data-label="Category">Tax figures</td>
+              <td data-label="Detail">Optional, and entered by you on the tax screen: gross income for a financial year, the deductions you claim (80C, 80D, rent paid, HRA received, basic salary), tax deducted at source, the advance and self-assessment tax payments you record, and your own home-loan interest figure under 24(b) where you give one. A loan can also record what its house is used for (lived in or let out). Capital gains are read from sales already recorded in your portfolio, and home-loan interest from the loan's own schedule; nothing is fetched from anywhere.</td>
+              <td data-label="Why">To estimate tax under each regime and show which is lower. Held per person and per financial year, because income tax in India is assessed on an individual; one member's figures never enter another's estimate.</td>
             </tr>
             <tr>
-              <td>AI connections</td>
-              <td>Only if you connect an AI app: the app's name and where it sends you back to, whether masking is on, when it was connected and last used, and a log of each question it asked and each change it made (when, which tool, its arguments, and the size of the answer). The answers themselves are not kept. If you allowed it to make changes, those changes are in the activity log like your own, and any it suggested wait in Review until you decide. The log is kept for 90 days, at most 2,000 rows a member, and each member sees only their own.</td>
-              <td>So you can see what an AI has read or changed, undo it, and disconnect it.</td>
+              <td data-label="Category">AI connections</td>
+              <td data-label="Detail">Only if you connect an AI app: the app's name and where it sends you back to, whether masking is on, when it was connected and last used, and a log of each question it asked and each change it made (when, which tool, its arguments, and the size of the answer). The answers themselves are not kept. If you allowed it to make changes, those changes are in the activity log like your own, and any it suggested wait in Review until you decide. The log is kept for 90 days, at most 2,000 rows a member, and each member sees only their own.</td>
+              <td data-label="Why">So you can see what an AI has read or changed, undo it, and disconnect it.</td>
             </tr>
             <tr>
-              <td>Billing</td>
-              <td>Plan, billing cycle, invoices, and a payment token. We never receive or store your full card number, CVV or UPI credentials.</td>
-              <td>To take payment and issue invoices.</td>
+              <td data-label="Category">Billing</td>
+              <td data-label="Detail">Plan, billing cycle, invoices, and a payment token. We never receive or store your full card number, CVV or UPI credentials.</td>
+              <td data-label="Why">To take payment and issue invoices.</td>
             </tr>
             <tr>
-              <td>Operational logs</td>
-              <td>Method, path, status, duration, and errors. Never query strings, form bodies, amounts or financial values.</td>
-              <td>To keep the service working and to investigate faults.</td>
+              <td data-label="Category">Operational logs</td>
+              <td data-label="Detail">Method, path, status, duration, and errors. Never query strings, form bodies, amounts or financial values.</td>
+              <td data-label="Why">To keep the service working and to investigate faults.</td>
             </tr>
           </tbody>
         </table>
@@ -341,19 +344,19 @@
         and no others. Sign-in is optional; Gmail access is separately optional
         and off until you turn it on.
       </p>
-      <div class="table-scroll">
-        <table>
+      <div class="table-scroll" tabindex="0">
+        <table class="legal__table">
           <thead><tr><th>Scope</th><th>What it grants</th><th>Why it is asked for</th></tr></thead>
           <tbody>
             <tr>
-              <td><code>openid</code>, <code>email</code>, <code>profile</code></td>
-              <td>Your Google account's email address, name and profile picture.</td>
-              <td>To sign you in, and to attribute each change to a person. Nothing else reads it.</td>
+              <td data-label="Scope"><code>openid</code>, <code>email</code>, <code>profile</code></td>
+              <td data-label="What it grants">Your Google account's email address, name and profile picture.</td>
+              <td data-label="Why it is asked for">To sign you in, and to attribute each change to a person. Nothing else reads it.</td>
             </tr>
             <tr>
-              <td><code>gmail.readonly</code></td>
-              <td>Read-only access to your Gmail messages.</td>
-              <td>To find bank transaction alerts and statement PDFs, so they need not be downloaded and uploaded by hand. The search is built only from the bank senders you configure; no other message is ever requested.</td>
+              <td data-label="Scope"><code>gmail.readonly</code></td>
+              <td data-label="What it grants">Read-only access to your Gmail messages.</td>
+              <td data-label="Why it is asked for">To find bank transaction alerts and statement PDFs, so they need not be downloaded and uploaded by hand. The search is built only from the bank senders you configure; no other message is ever requested.</td>
             </tr>
           </tbody>
         </table>
@@ -383,16 +386,16 @@
       </ul>
 
       <h2 id="processors">Who else processes your data</h2>
-      <div class="table-scroll">
-        <table>
+      <div class="table-scroll" tabindex="0">
+        <table class="legal__table">
           <thead><tr><th>Processor</th><th>What for</th><th>What they see</th></tr></thead>
           <tbody>
-            <tr><td>Fly.io (Singapore by default)</td><td>Running the service</td><td>Everything stored, as our infrastructure provider. Another region on request.</td></tr>
-            <tr><td>Razorpay</td><td>Taking payment</td><td>Your name, email, and the payment instrument. They hold the card details; we do not.</td></tr>
-            <tr><td>Cloudflare</td><td>Serving the website, and counting visits to it</td><td>The request itself as the network in front of us, and, on pathayam.app only, the page, referrer, browser, country and load time. No cookie, no identifier that outlives the visit.</td></tr>
-            <tr><td>Google <em>(only if you choose it)</em></td><td>Sign-in</td><td>That you signed in to Pathayam. Not used at all if you sign in with a password or your own identity provider.</td></tr>
-            <tr><td>The AI app you connect <em>(only if you connect one)</em></td><td>Answering the questions you ask it</td><td>What its questions return, masked by default. Not our processor: a recipient you choose, under its own terms.</td></tr>
-            <tr><td>Google</td><td>The sheet that holds instance requests</td><td>The email address you sent, and the plan and page it came from</td></tr>
+            <tr><td data-label="Processor">Fly.io (Singapore by default)</td><td data-label="What for">Running the service</td><td data-label="What they see">Everything stored, as our infrastructure provider. Another region on request.</td></tr>
+            <tr><td data-label="Processor">Razorpay</td><td data-label="What for">Taking payment</td><td data-label="What they see">Your name, email, and the payment instrument. They hold the card details; we do not.</td></tr>
+            <tr><td data-label="Processor">Cloudflare</td><td data-label="What for">Serving the website, and counting visits to it</td><td data-label="What they see">The request itself as the network in front of us, and, on pathayam.app only, the page, referrer, browser, country and load time. No cookie, no identifier that outlives the visit.</td></tr>
+            <tr><td data-label="Processor">Google <em>(only if you choose it)</em></td><td data-label="What for">Sign-in</td><td data-label="What they see">That you signed in to Pathayam. Not used at all if you sign in with a password or your own identity provider.</td></tr>
+            <tr><td data-label="Processor">The AI app you connect <em>(only if you connect one)</em></td><td data-label="What for">Answering the questions you ask it</td><td data-label="What they see">What its questions return, masked by default. Not our processor: a recipient you choose, under its own terms.</td></tr>
+            <tr><td data-label="Processor">Google</td><td data-label="What for">The sheet that holds instance requests</td><td data-label="What they see">The email address you sent, and the plan and page it came from</td></tr>
           </tbody>
         </table>
       </div>
@@ -454,7 +457,7 @@
         Write to <!--email_off--><a href="mailto:privacy@pathayam.app">privacy@pathayam.app</a><!--/email_off-->.
         Grievances reach the same address and are answered within 30 days.
       </p>
-      <p class="foot__note" style="margin-top:2rem">
+      <p class="legal__also">
         See also the <a href="terms.html">terms of service</a>.
       </p>
     </div>
