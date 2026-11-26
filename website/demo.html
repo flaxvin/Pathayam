@@ -51,198 +51,214 @@
 </header>
 
 <main id="main">
-  <section class="sec sec--tight">
-    <div class="wrap center">
-      <p class="eyebrow">Live demo</p>
-      <h1 style="font-size:var(--step-5);max-width:19ch;margin-inline:auto">Play with the real engine</h1>
-      <p class="lede" style="font-size:var(--step-2);max-width:56ch">
-        This demo runs the app's own arithmetic. Assign money, spend it, put it
-        on a card, and roll into next month to see what carries over.
-      </p>
-      <div class="actions" style="margin-top:1.75rem">
-        <a class="btn btn--primary" href="#try">Start here</a>
-        <a class="btn btn--ghost" href="https://demo.pathayam.app/" rel="nofollow">Open the full app in demo mode</a>
+  <section class="dhero" aria-labelledby="h-demo">
+    <div class="wrap dhero__grid">
+      <h1 id="h-demo">Play with the real engine</h1>
+      <div class="dhero__side">
+        <p class="dhero__sub">
+          This demo runs the app&rsquo;s own arithmetic. Assign money, spend it, put it
+          on a card, and roll into next month to see what carries over.
+        </p>
+        <div class="actions">
+          <a class="btn btn--primary" href="#try">Start here</a>
+          <a class="btn btn--ghost" href="https://demo.pathayam.app/" rel="nofollow">Open the full app in demo mode</a>
+        </div>
+        <p class="dhero__fine">
+          The full demo is a hosted instance carrying 36 months of invented data for a
+          household of four, covering every screen and module up to this month,
+          including the month two of them moved out and the month one came back.
+          It resets whenever it wakes from idle and is re-seeded every Wednesday,
+          so nothing you type there lasts.
+        </p>
       </div>
-      <p class="hero__fine">
-        The full demo is a hosted instance carrying 36 months of invented data for a
-        household of four, covering every screen and module up to this month,
-        including the month two of them moved out and the month one came back.
-        It resets whenever it wakes from idle and is re-seeded every Wednesday,
-        so nothing you type there lasts.
-      </p>
     </div>
   </section>
 
-  <section class="sec sec--tight" id="try">
-    <div class="wrap">
-      <div class="tabs" role="tablist" aria-label="Demo sections">
-        <button class="tab" type="button" role="tab" data-tab="budget" aria-selected="true">Budget</button>
-        <button class="tab" type="button" role="tab" data-tab="spend" aria-selected="false">Spend</button>
-        <button class="tab" type="button" role="tab" data-tab="month" aria-selected="false">Next month</button>
+  <section class="trial" id="try" aria-label="The envelope demo">
+    <div class="wrap trial__grid">
+      <div class="trial__main">
+        <div class="tabs" role="tablist" aria-label="Demo sections">
+          <button class="tab" type="button" role="tab" data-tab="budget" aria-selected="true">Budget</button>
+          <button class="tab" type="button" role="tab" data-tab="spend" aria-selected="false">Spend</button>
+          <button class="tab" type="button" role="tab" data-tab="month" aria-selected="false">Next month</button>
+        </div>
+
+        <div class="demo" data-demo>
+          <div class="demo__bar">
+            <div class="rta">
+              <span class="rta__l">Ready to Assign</span>
+              <span class="rta__v" data-rta>₹60,000</span>
+            </div>
+            <ul class="rta__note">
+              <li><span data-month>September 2026</span></li>
+              <li>Card owes <b data-debt>₹11,600</b></li>
+            </ul>
+          </div>
+
+          <div class="demo__panel" data-panel="spend" hidden>
+            <div class="spendbar">
+              <label class="fld"><span>Category</span>
+                <select data-cat></select>
+              </label>
+              <label class="fld fld--amt"><span>Amount</span>
+                <input type="text" inputmode="numeric" data-amt placeholder="800" size="8">
+              </label>
+              <label class="chk"><input type="checkbox" data-card> on the credit card</label>
+              <div class="spendbar__acts">
+                <button class="btn btn--primary btn--sm" type="button" data-act="spend">Record it</button>
+                <button class="btn btn--ghost btn--sm" type="button" data-act="paycard">Pay the card off</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="demo__panel" data-panel="month" hidden>
+            <div class="spendbar">
+              <button class="btn btn--ghost btn--sm" type="button" data-act="model">Overspend: reduce next month</button>
+              <button class="btn btn--ghost btn--sm" type="button" data-act="hold">Hold the spare for next month</button>
+              <button class="btn btn--primary btn--sm" type="button" data-act="roll">Roll into next month</button>
+            </div>
+          </div>
+
+          <div class="grid-head" aria-hidden="true">
+            <div>Category</div>
+            <div>Assigned</div>
+            <div>Activity</div>
+            <div>Available</div>
+          </div>
+          <div class="demo__rows" data-rows></div>
+
+          <div class="demo__foot">
+            <button class="btn btn--ghost btn--sm" type="button" data-act="targets">Fund every target</button>
+            <button class="btn btn--ghost btn--sm" type="button" data-act="reset">Reset</button>
+            <p class="demo__msg" data-msg role="status"></p>
+          </div>
+        </div>
       </div>
 
-      <div class="demo" data-demo>
-        <div class="demo__bar">
-          <div class="rta">
-            <span class="rta__l">Ready to Assign</span>
-            <span class="rta__v" data-rta>₹60,000</span>
-          </div>
-          <p class="rta__note"><span data-month>September 2026</span> · card owes <b data-debt>₹11,600</b></p>
-        </div>
-
-        <div data-panel="spend" hidden>
-          <div class="spendbar">
-            <label class="fld"><span>Category</span>
-              <select data-cat></select>
-            </label>
-            <label class="fld"><span>Amount</span>
-              <input type="text" inputmode="numeric" data-amt placeholder="800" size="8">
-            </label>
-            <label class="chk"><input type="checkbox" data-card> on the credit card</label>
-            <button class="btn btn--primary btn--sm" type="button" data-act="spend">Record it</button>
-            <button class="btn btn--ghost btn--sm" type="button" data-act="paycard">Pay the card off</button>
-          </div>
-        </div>
-
-        <div data-panel="month" hidden>
-          <div class="spendbar">
-            <button class="btn btn--ghost btn--sm" type="button" data-act="model">Overspend: reduce next month</button>
-            <button class="btn btn--ghost btn--sm" type="button" data-act="hold">Hold the spare for next month</button>
-            <button class="btn btn--primary btn--sm" type="button" data-act="roll">Roll into next month →</button>
-          </div>
-        </div>
-
-        <div class="grid-head">
-          <div>Category</div>
-          <div style="text-align:right">Assigned</div>
-          <div style="text-align:right">Activity</div>
-          <div style="text-align:right">Available</div>
-        </div>
-        <div data-rows></div>
-
-        <div class="demo__foot">
-          <button class="btn btn--primary btn--sm" type="button" data-act="targets">Fund every target</button>
-          <button class="btn btn--ghost btn--sm" type="button" data-act="reset">Reset</button>
-          <p class="demo__msg" data-msg role="status"></p>
-        </div>
-      </div>
-
-      <div class="cols" style="margin-top:1.5rem">
-        <div>
-          <h2 style="font-size:var(--step-2);margin-bottom:0.6rem">What happened</h2>
-          <ul class="log" data-log></ul>
-        </div>
+      <aside class="trial__side" aria-label="How to use the demo">
         <div class="note">
           <b>Try this order.</b> Fund every target and watch Ready to Assign reach
           zero. Then go to <em>Spend</em>, put ₹2,000 of groceries on the card, and
           look at the payment envelope: the cash to clear it has moved across
           automatically. Then <em>Next month</em>, and roll.
         </div>
-      </div>
+        <div class="trial__log">
+          <h2>What happened</h2>
+          <ul class="log" data-log aria-live="polite"></ul>
+        </div>
+      </aside>
     </div>
   </section>
 
-  <section class="sec sec--band">
-    <div class="wrap">
-      <div class="center" style="margin-bottom:2.5rem">
-        <h2 class="h-sec">The four rules the demo enforces</h2>
+  <section class="sec sec--band rules" aria-labelledby="h-rules">
+    <div class="wrap rules__grid">
+      <div class="rules__head">
+        <h2 class="h-sec" id="h-rules">The four rules the demo enforces</h2>
         <p class="lede">The app enforces the same four rules on your real money.</p>
       </div>
-      <div class="cards">
-        <div class="card">
+      <ol class="rules__list">
+        <li class="rule">
           <h3>You can only budget what you have</h3>
-          <p>Ready to Assign starts at what actually arrived. Assign more and it goes
-          negative, and the app keeps saying so until you take some back.</p>
-          <p><a href="guides.html#first-budget">Build your first budget →</a></p>
-        </div>
-        <div class="card">
+          <div class="rule__body">
+            <p>Ready to Assign starts at what actually arrived. Assign more and it goes
+            negative, and the app keeps saying so until you take some back.</p>
+            <p class="rule__link"><a href="guides.html#first-budget">Build your first budget</a></p>
+          </div>
+        </li>
+        <li class="rule">
           <h3>Overspending is never hidden</h3>
-          <p>Push an envelope below zero and it turns red with a <em>cover</em>
-          button. Take it from an envelope with money to spare, or let the rollover handle it
-          under whichever model you picked.</p>
-          <p><a href="guides.html#overspend">When you go over →</a></p>
-        </div>
-        <div class="card">
+          <div class="rule__body">
+            <p>Push an envelope below zero and it turns red with a <em>cover</em>
+            button. Take it from an envelope with money to spare, or let the rollover handle it
+            under whichever model you picked.</p>
+            <p class="rule__link"><a href="guides.html#overspend">When you go over</a></p>
+          </div>
+        </li>
+        <li class="rule">
           <h3>Card spending reserves the cash</h3>
-          <p>Buy something on the card and the category gives the money up while the
-          payment envelope holds it. The statement is never a surprise, because the
-          money was set aside when you spent it.</p>
-          <p><a href="guides.html#cards">Credit cards →</a></p>
-        </div>
-        <div class="card">
+          <div class="rule__body">
+            <p>Buy something on the card and the category gives the money up while the
+            payment envelope holds it. The statement is never a surprise, because the
+            money was set aside when you spent it.</p>
+            <p class="rule__link"><a href="guides.html#cards">Credit cards</a></p>
+          </div>
+        </li>
+        <li class="rule">
           <h3>Nothing appears from nowhere</h3>
-          <p>Every rupee is somewhere: in an envelope, in Ready to Assign, or held
-          for next month. Roll the month and watch leftovers carry
-          over.</p>
-          <p><a href="guides.html#assign">Assign, move and hold →</a></p>
-        </div>
-      </div>
+          <div class="rule__body">
+            <p>Every rupee is somewhere: in an envelope, in Ready to Assign, or held
+            for next month. Roll the month and watch leftovers carry
+            over.</p>
+            <p class="rule__link"><a href="guides.html#assign">Assign, move and hold</a></p>
+          </div>
+        </li>
+      </ol>
     </div>
   </section>
 
-  <section class="sec sec--band" id="separate-demo">
-    <div class="wrap">
-      <div class="row2">
-        <div class="row2__text">
-          <h2>If you don't pool your money</h2>
-          <p class="lede">The demo household above shares one budget, which is what most households do. The full demo also has two people keeping their own budgets, with their own accounts, their own envelopes, and ₹40,000 and ₹18,000 a month committed to the shared bills.</p>
-          <ul class="checks" style="margin-top:1.5rem">
-            <li>A private account the rest of the household cannot see at all</li>
-            <li>Rent paid from it, filed to the household's envelope, with no money transferred</li>
-            <li>A month where he paid for more than he put aside, and the three ways that can be settled</li>
-            <li>Two people leaving in the same month, settled two different ways: one released, and one turned into money the household owes</li>
-            <li>One of them coming back six months later, picking up where they left off</li>
-          </ul>
-          <p class="muted" style="margin-top:1.25rem">
-            None of this is switched on for a household that pools everything, so
-            you won't see a second grid or any extra controls.
-          </p>
-          <div class="actions" style="margin-top:2rem">
-            <a class="btn btn--primary" href="https://demo.pathayam.app/" rel="nofollow">Open the full app in demo mode</a>
-            <a class="btn btn--ghost" href="guides.html#separate">Read the guide</a>
-          </div>
+  <section class="sec split" id="separate-demo" aria-labelledby="h-separate">
+    <div class="wrap split__grid">
+      <div class="split__text">
+        <h2 id="h-separate">If you don&rsquo;t pool your money</h2>
+        <p class="lede">The demo household above shares one budget, which is what most households do. The full demo also has two people keeping their own budgets, with their own accounts, their own envelopes, and ₹40,000 and ₹18,000 a month committed to the shared bills.</p>
+        <ul class="checks">
+          <li>A private account the rest of the household cannot see at all</li>
+          <li>Rent paid from it, filed to the household&rsquo;s envelope, with no money transferred</li>
+          <li>A month where he paid for more than he put aside, and the three ways that can be settled</li>
+          <li>Two people leaving in the same month, settled two different ways: one released, and one turned into money the household owes</li>
+          <li>One of them coming back six months later, picking up where they left off</li>
+        </ul>
+        <p class="muted">
+          None of this is switched on for a household that pools everything, so
+          you won&rsquo;t see a second grid or any extra controls.
+        </p>
+        <div class="actions">
+          <a class="btn btn--primary" href="https://demo.pathayam.app/" rel="nofollow">Open the full app in demo mode</a>
+          <a class="btn btn--ghost" href="guides.html#separate">Read the guide</a>
         </div>
-        <figure class="frame">
+      </div>
+      <figure class="split__shot">
+        <div class="frame">
           <picture>
             <source media="(max-width: 44rem)" srcset="img/household-mobile.webp" width="840" height="1800">
             <img src="img/household.webp" width="2800" height="2790" loading="lazy"
                alt="The household page: what each of you put in, what went out, and where it stands.">
           </picture>
-          <figcaption>What each of you put in, and where it stands.</figcaption>
-        </figure>
-      </div>
+        </div>
+        <figcaption>What each of you put in, and where it stands.</figcaption>
+      </figure>
     </div>
   </section>
 
-  <section class="sec">
-    <div class="wrap">
-      <div class="row2">
-        <div class="row2__text">
-          <h2>What the full app adds</h2>
-          <p class="lede">The full app includes the features that keep a budget working month after month.</p>
-          <ul class="checks" style="margin-top:1.5rem">
-            <li><strong>Transaction imports.</strong> Statement PDFs from twelve banks, CSVs, bank alerts and YNAB or Actual exports, all landing in a review queue.</li>
-            <li><strong>Rules that learn.</strong> File a payee twice and a rule is proposed, never applied silently.</li>
-            <li><strong>Loans, investments and net worth</strong>, with the firewall that keeps growth out of the budget.</li>
-            <li><strong>Tax, with the AIS already read.</strong> The full demo&rsquo;s tax page carries an invented Annual Information Statement, and a tax-free gains card with something to suggest. It will not take an upload of yours, because everyone visiting shares one household. <a href="guides.html#ais">How to read your own</a>.</li>
-            <li><strong>Undo on everything</strong>, for thirty days, from an append-only log.</li>
-            <li><strong>Separate budgets</strong>, for households that keep their own accounts and split the shared bills, without moving money between accounts.</li>
-            <li><strong>Asking an AI.</strong> Connect Claude, ChatGPT or Gemini to your own instance and ask about your figures, read-only unless you allow it changes. The full demo will not connect one: it issues no tokens and approves no AI app. <a href="guides.html#connect-ai">How to connect</a>.</li>
-          </ul>
-          <div class="actions" style="margin-top:2rem">
-            <a class="btn btn--primary" href="guides.html">Read the guides</a>
-            <a class="btn btn--ghost" href="features.html">See every feature</a>
-          </div>
+  <section class="sec sec--band split" aria-labelledby="h-adds">
+    <div class="wrap split__grid">
+      <div class="split__text">
+        <h2 id="h-adds">What the full app adds</h2>
+        <p class="lede">The full app includes the features that keep a budget working month after month.</p>
+        <ul class="checks">
+          <li><strong>Transaction imports.</strong> Statement PDFs from twelve banks, CSVs, bank alerts and YNAB or Actual exports, all landing in a review queue.</li>
+          <li><strong>Rules that learn.</strong> File a payee twice and a rule is proposed, never applied silently.</li>
+          <li><strong>Loans, investments and net worth</strong>, with the firewall that keeps growth out of the budget.</li>
+          <li><strong>Tax, with the AIS already read.</strong> The full demo&rsquo;s tax page carries an invented Annual Information Statement, and a tax-free gains card with something to suggest. It will not take an upload of yours, because everyone visiting shares one household. <a href="guides.html#ais">How to read your own</a>.</li>
+          <li><strong>Undo on everything</strong>, for thirty days, from an append-only log.</li>
+          <li><strong>Separate budgets</strong>, for households that keep their own accounts and split the shared bills, without moving money between accounts.</li>
+          <li><strong>Asking an AI.</strong> Connect Claude, ChatGPT or Gemini to your own instance and ask about your figures, read-only unless you allow it changes. The full demo will not connect one: it issues no tokens and approves no AI app. <a href="guides.html#connect-ai">How to connect</a>.</li>
+        </ul>
+        <div class="actions">
+          <a class="btn btn--primary" href="guides.html">Read the guides</a>
+          <a class="btn btn--ghost" href="features.html">See every feature</a>
         </div>
-        <figure class="frame">
+      </div>
+      <figure class="split__shot">
+        <div class="frame">
           <picture>
             <source media="(max-width: 44rem)" srcset="img/budget-mobile.webp" width="840" height="1800">
             <img src="img/budget.webp" width="2800" height="11600" loading="lazy"
                alt="The real budget screen with credit card payment envelopes, target chips and the digest.">
           </picture>
-          <figcaption>The same grid in the app, with payment envelopes and targets.</figcaption>
-        </figure>
-      </div>
+        </div>
+        <figcaption>The same grid in the app, with payment envelopes and targets.</figcaption>
+      </figure>
     </div>
   </section>
 </main>
