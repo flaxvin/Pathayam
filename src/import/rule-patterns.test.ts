@@ -53,6 +53,9 @@ describe("Decision 10 · which patterns a rule may hold", () => {
       "SWIGGY", "^UPI.*SWIGGY.*$", "AMAZON|FLIPKART", "(foo|bar)+", "\\d{2}-\\d{2}", "^NEFT/[A-Z0-9]+/",
       "(\\d{2})+", "colou?r", "a{2,5}", "\\(a+\\)+", "[(a+)+]", "(?<n>ab)c\\k<n>", "a".repeat(200),
       "^UPI.*SWIGGY.*INSTA ?MART", "AMAZON ?PAY", "[A-Z]{3,20}/\\d{4,12}", "(?:\\d{2})?\\d{4}",
+      // Weekly 25-11 · exact repeats and choices that cannot both match stay accepted.
+      "(\\d{1,3}\\.){3}\\d{1,3}", "(?:SWIGGY|ZOMATO){1,3}", "(?:\\d{2}){3}", "(?:\\w*){2}", "(?:\\w{3}){10}",
+      "(?:a|b){30}", "UPI/(?:P2M|P2A)/\\d+",
     ]) {
       assert.equal(patternProblem(fine), null, fine);
     }
@@ -64,6 +67,7 @@ describe("Decision 10 · which patterns a rule may hold", () => {
     const hostile = "a".repeat(PATTERN_INPUT_LIMIT);
     for (const nearLimit of [
       "\\w*\\s?\\w*\\s?!", "\\w*\\w*!", "\\w{0,20}\\w{0,20}\\w{0,20}!", "\\w?".repeat(14) + "!",
+      "(?:\\d|\\w|[0-9])".repeat(8) + "!",
     ]) {
       assert.equal(patternProblem(nearLimit), null, nearLimit);
       const started = Date.now();

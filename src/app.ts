@@ -3198,11 +3198,35 @@ export function buildApp(deps: AppDeps): {
       `${month}-01`, `${addMonths(month, 1)}-01`, category.id, category.id, ...hidden.params,
     ).map((r) => r.id);
 
+    /*
+     * UI-2 (weekly 25-11) · A split row's events speak of the whole row:
+     * "Spent ₹5,600" under Household, whose line of the split was ₹3,200 — and
+     * the same ₹5,600 again under Personal. Each such line now says how much
+     * of it is this envelope's.
+     */
+    const splitShare = new Map<string, number>();
+    for (const id of transactionIds) {
+      const share = queryOne<{ n: number; total: number | null }>(
+        db,
+        `SELECT COUNT(*) AS n, SUM(amount) AS total FROM transaction_splits
+          WHERE transaction_id = ? AND category_id = ?`,
+        id, category.id,
+      );
+      if (share && share.n > 0 && share.total !== null) splitShare.set(id, share.total);
+    }
+
     // J22: three events, three actors, one answer.
     const events = [
       ...historyFor(db, "assignment", `${month}:${category.id}`),
       ...transactionIds.flatMap((id) => historyFor(db, "transaction", id)),
     ].sort((a, b) => a.seq - b.seq);
+    const lines = events.map((e) => {
+      const line = explainLineFor(e, memberName);
+      const share = e.entity === "transaction" && e.entityId ? splitShare.get(e.entityId) : undefined;
+      return share === undefined
+        ? line
+        : { ...line, what: `${line.what} — ${formatPaise(Math.abs(share))} of it in ${category.name}` };
+    });
 
     return explainResponse(ctx, {
       title: category.name,
@@ -3211,7 +3235,7 @@ export function buildApp(deps: AppDeps): {
         `Opened at ${formatPaise(category.state.opening)}, ` +
         `${formatPaise(category.state.assigned)} assigned, ` +
         `${formatPaise(-category.state.activity)} spent.`,
-      lines: events.map((e) => explainLineFor(e, memberName)),
+      lines,
     });
   });
 

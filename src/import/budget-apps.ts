@@ -23,7 +23,7 @@
  * Pure: text in, rows out. Nothing here reads the database.
  */
 
-import type { Paise } from "../core/money.ts";
+import { AMOUNT_TEXT_MAX, type Paise } from "../core/money.ts";
 import { calendarDate, fullYear, type IsoDate } from "../core/dates.ts";
 import { parseDelimited, detectDelimiter, type ParseError } from "./csv.ts";
 
@@ -199,6 +199,10 @@ export function decimalSeparatorOf(cells: string[]): "." | "," {
 export function parseAppAmount(raw: string, decimal: "." | "," = "."): Paise | null {
   let s = raw.trim();
   if (s === "") return 0 as Paise;
+  // Weekly 25-11 · Stripping the trailing symbol backtracks over a long run
+  // of non-digits: one 200 KB Outflow cell held the server 16 s. No amount is
+  // this long.
+  if (s.length > AMOUNT_TEXT_MAX) return null;
   let negative = false;
   if (/^\(.*\)$/.test(s)) {
     negative = true;

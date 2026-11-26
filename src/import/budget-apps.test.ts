@@ -14,6 +14,24 @@ import {
   YNAB_DAY_FIRST, YNAB_MONTH_FIRST, YNAB_AMBIGUOUS, YNAB_MIXED, YNAB_DECIMAL_COMMA, ACTUAL_EXPORT,
 } from "./budget-apps.test-data.ts";
 
+describe("weekly 25-11 · a hostile amount cell", () => {
+  test("a long run of spaces or letters in Outflow is refused in milliseconds, and real amounts still read", () => {
+    for (const fill of [" ", "a"]) {
+      const cell = "1" + fill.repeat(100_000) + "1";
+      const started = Date.now();
+      assert.equal(parseAppAmount(cell), null);
+      assert.ok(Date.now() - started < 300, `${JSON.stringify(fill)}: ${Date.now() - started} ms`);
+      const header = "Account,Flag,Date,Payee,Category,Memo,Outflow,Inflow";
+      const text = `${header}\nZZ Savings,,13/11/2026,Shop,Food,m,"${cell}",0.00\n`;
+      const fileStarted = Date.now();
+      parseBudgetApp(text, { dateOrder: "dd-mm-yyyy" });
+      assert.ok(Date.now() - fileStarted < 1_000, `file: ${Date.now() - fileStarted} ms`);
+    }
+    assert.equal(parseAppAmount("₹1,23,456.78"), 12_345_678);
+    assert.equal(parseAppAmount("-€1.234,50", ","), -123_450);
+  });
+});
+
 describe("IMPORT-1 · recognising the file", () => {
   test("YNAB and Actual are told apart by their headers; a bank statement is neither", () => {
     assert.equal(detectBudgetApp(parseDelimited(YNAB_DAY_FIRST))?.app, "ynab");

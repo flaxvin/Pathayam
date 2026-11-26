@@ -311,7 +311,14 @@ export function monthFromName(name: string): number | null {
  * away. Returns null rather than guessing when the input is not a date — or
  * not a real one, or not in a plausible year.
  */
+/** Weekly 25-11 · The longest text read as a date ("15 September 2026 at 10:32:00 a.m. IST" is 38). */
+export const DATE_TEXT_MAX = 64;
+
 export function parseDate(input: string, reference: IsoDate = todayIST()): IsoDate | null {
+  // Weekly 25-11 · The time-of-day and named-month patterns backtrack over a
+  // run of spaces or commas: one 200 KB date cell in a CSV held the server
+  // for 43 s. No date, with its time, is this long.
+  if (input.length > DATE_TEXT_MAX && input.trim().length > DATE_TEXT_MAX) return null;
   // A trailing time of day is common in bank exports and says nothing about
   // which day it was.
   const s = input.trim()

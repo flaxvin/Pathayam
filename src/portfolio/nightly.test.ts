@@ -13,7 +13,8 @@ import { createAssetAccount, findOrCreateInstrument, recordPurchase, latestPrice
 import { clearAmfiCache } from "./providers.ts";
 import { clearBhavcopyCache, priceFromBhavcopy, bhavcopyDownloadsToday, LIMITS } from "./bhavcopy.ts";
 import { nextIstMidnight, everyIstMidnight, nightlyPriceRefresh } from "./nightly.ts";
-import { DEMO_REFRESH_NOTICE } from "./refresh.ts";
+import { DEMO_REFRESH_NOTICE, refreshPrices } from "./refresh.ts";
+import { execute } from "../db/db.ts";
 import { freshDb, seedMember, startTestApp, testConfig } from "../web/harness.test-data.ts";
 
 const actor: Actor = { memberId: "m-ravi", source: "ui" };
@@ -127,6 +128,37 @@ describe("weekly 18-11 #5 · the nightly refresh is at 00:00 IST, not UTC", () =
     assert.equal(outcome.updated, 1, outcome.notes.join("; "));
     assert.equal(calls.length, 1);
     assert.equal(latestPrice(db, instrument.id)?.price, 86_400_000);
+    db.close();
+  });
+
+  test("weekly 25-11 · the midnight run does not stand in for that evening's run after the NAVs are out", async () => {
+    // The 00:00 run fetched the day before's NAV; it logged its fetch under
+    // the new day, which the six-hourly tick read as "funds already done
+    // today" — so the 23:00 cadence never ran again, on any instance.
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    fund(db);
+    clearAmfiCache();
+    const { impl, calls } = countingMfapi();
+    const midnight = new Date("2026-11-21T18:30:00Z"); // 00:00 IST, 22-11-2026
+    await nightlyPriceRefresh(db, assetsOn, { fetchImpl: impl, now: midnight, sleep: async () => {}, random: () => 0 });
+    assert.equal(calls.length, 1);
+    // As the live clock would have logged it.
+    execute(db, `UPDATE price_fetches SET requested_at = '2026-11-22T00:00:04.000+05:30'`);
+
+    const evening = new Date("2026-11-22T18:00:00Z"); // 23:30 IST, 22-11-2026
+    const tick = await refreshPrices(db, { memberId: null, source: "job" }, {
+      fetchImpl: impl, now: evening, sleep: async () => {}, random: () => 0,
+    });
+    assert.equal(tick.attempted, 1, "the evening's NAV is fetched");
+    assert.equal(calls.length, 2);
+
+    // And it still runs only once an evening.
+    execute(db, `UPDATE price_fetches SET requested_at = '2026-11-22T23:30:02.000+05:30' WHERE id = (SELECT MAX(id) FROM price_fetches)`);
+    const again = await refreshPrices(db, { memberId: null, source: "job" }, {
+      fetchImpl: impl, now: new Date("2026-11-22T18:20:00Z"), sleep: async () => {}, random: () => 0,
+    });
+    assert.equal(again.attempted, 0);
     db.close();
   });
 

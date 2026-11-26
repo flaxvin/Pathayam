@@ -16,7 +16,8 @@
 
 import type { Paise } from "../core/money.ts";
 import type { IsoDate } from "../core/dates.ts";
-import { daysBetween } from "../core/dates.ts";
+import { daysBetween, formatDate } from "../core/dates.ts";
+import { formatPaise } from "../core/money.ts";
 
 export type DuplicateTier = "exact" | "strong" | "probable" | "weak" | "manual-vs-imported";
 
@@ -169,7 +170,7 @@ export function findDuplicate(incoming: Incoming, candidates: Candidate[]): Dupl
       tier: "manual-vs-imported",
       existing: manual,
       reason:
-        `You entered ${describeAmount(incoming.amount)} by hand on ${manual.date}, ` +
+        `You entered ${describeAmount(incoming.amount)} by hand on ${formatDate(manual.date)}, ` +
         `and the bank has now sent the same amount.`,
       action: "ask",
       // The manual entry has the category you chose; the import has the
@@ -223,8 +224,14 @@ function dayGap(a: IsoDate, b: IsoDate): string {
   return `${days} day${days === 1 ? "" : "s"} apart`;
 }
 
+/*
+ * UI-1 (weekly 25-11) · This was `toLocaleString("en-IN")` on rupees, which
+ * drops a trailing zero: "You entered ₹2,340.5 by hand on 2026-11-25" in the
+ * review queue, beside the row's own "-₹2,340.50". The app's one formatter,
+ * and its DD-MM-YYYY dates, say it the way every other screen does.
+ */
 function describeAmount(amount: Paise): string {
-  return `₹${Math.abs(amount / 100).toLocaleString("en-IN")}`;
+  return formatPaise(Math.abs(amount));
 }
 
 /** How prominently the review queue should show a suspected pair (S4 §2). */

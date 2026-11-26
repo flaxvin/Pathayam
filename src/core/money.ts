@@ -263,9 +263,15 @@ export function wellGrouped(whole: string): boolean {
  * refused as well: "1.234" is not a number of paise, and rounding it to ₹1.23
  * hides a malformed cell.
  */
+/** Weekly 25-11 · The longest text read as an amount ("INR 1,00,00,00,000.00 Dr." is 25). */
+export const AMOUNT_TEXT_MAX = 64;
+
 export function parseAmount(input: string, context: AmountContext = "typed"): Paise | null {
   let s = input.trim().replace(/−/g, "-");
   if (s === "") return null;
+  // Weekly 25-11 · The Dr/Cr test below backtracks over a run of spaces: one
+  // 200 KB amount cell in a CSV held the server 17 s. No amount is this long.
+  if (s.length > AMOUNT_TEXT_MAX) return null;
 
   let negatives = 0;
   let positives = 0;

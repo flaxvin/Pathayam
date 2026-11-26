@@ -15,6 +15,8 @@ import type { Actor } from "../core/events.ts";
 import { createAccount } from "../domain/accounts.ts";
 import { listStaged } from "./pipeline.ts";
 import { extractNarrationFields } from "./rules.ts";
+import { parseAmount } from "../core/money.ts";
+import { parseDate } from "../core/dates.ts";
 import { freshDb, seedMember, startTestApp } from "../web/harness.test-data.ts";
 
 const actor: Actor = { memberId: "m-ravi", source: "ui" };
@@ -28,6 +30,43 @@ const hostile: [string, string][] = [
   ["a mask-character run", "SHOP " + "x".repeat(N) + "!"],
   ["spaced dashes", "SHOP " + "- ".repeat(N / 2) + "x"],
 ];
+
+describe("weekly 25-11 · hostile amount and date cells", () => {
+  test("a run of spaces in an amount or date is refused in milliseconds, and an ordinary one still reads", () => {
+    const spaced = "SHOP" + " ".repeat(100_000) + "x";
+    for (const [what, run] of [
+      ["amount", () => parseAmount(spaced, "statement")],
+      ["date", () => parseDate(spaced)],
+      ["date of commas", () => parseDate("1" + ",".repeat(100_000) + "x")],
+    ] as const) {
+      const started = Date.now();
+      assert.equal(run(), null);
+      assert.ok(Date.now() - started < 300, `${what}: ${Date.now() - started} ms`);
+    }
+    assert.equal(parseAmount("INR 1,00,00,00,000.00 Dr.", "statement"), -100_000_000_000);
+    assert.equal(parseDate("15 September 2026 at 10:32 a.m. IST"), "2026-09-15");
+    assert.equal(parseDate("   28-08-26, 00:01:28 IST   "), "2026-08-28");
+  });
+
+  test("a CSV whose amount and date cells are long runs of spaces is answered quickly", async () => {
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    const account = createAccount(db, actor, {
+      name: "ZZ Savings", kind: "budget", subtype: "savings", openingDate: "2026-01-01",
+    });
+    const app = await startTestApp(db, { memberId: "m-ravi" });
+    try {
+      const run = "SHOP" + " ".repeat(100_000) + "x";
+      const csv = ["Date,Narration,Amount", `01-11-2026,SHOP,${run}`, `${run},SHOP,-10.00`, "02-11-2026,OK,-5.00"].join("\n");
+      const started = Date.now();
+      const res = await app.post("/import", { account_id: account.id, file_name: "a.csv", csv });
+      assert.ok(res.status < 500, String(res.status));
+      assert.ok(Date.now() - started < 3_000, `took ${Date.now() - started} ms`);
+    } finally {
+      await app.close();
+    }
+  });
+});
 
 describe("weekly 18-11 · hostile narrations", () => {
   test("reading the fields of a long narration takes milliseconds, whatever it is made of", () => {

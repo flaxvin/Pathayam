@@ -481,13 +481,19 @@ export function isinChangeFor(
   return { newIsin, detail: last.detail };
 }
 
-/** The last date this class was fetched at all. */
+/**
+ * The last date this class was fetched after its hour (P4). Weekly 25-11 · A
+ * fetch before the hour — the 00:00 IST nightly run, or a press of Refresh at
+ * noon — got the day before's number and does not count as the day's run;
+ * counting it left the evening cadence never running at all.
+ */
 function lastRunFor(db: DB, cls: PriceClass): IsoDate | null {
+  const hour = REFRESH_AFTER_HOUR[cls] ?? 0;
   const row = queryOne<{ day: string }>(
     db,
     `SELECT MAX(substr(requested_at, 1, 10)) AS day FROM price_fetches
-      WHERE class = ? AND status = 'ok'`,
-    cls,
+      WHERE class = ? AND status = 'ok' AND CAST(substr(requested_at, 12, 2) AS INTEGER) >= ?`,
+    cls, hour,
   );
   return (row?.day as IsoDate) ?? null;
 }

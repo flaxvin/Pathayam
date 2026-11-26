@@ -910,6 +910,10 @@ export function aiTaxEstimate(
     const regime = (r: NonNullable<typeof p.estimate>["old"]) => ({
       gross_income: inr(r.gross), standard_deduction: inr(r.standardDeduction), hra_exempt: inr(r.hraExempt),
       home_loan_interest: inr(r.homeLoanInterest), chapter_via_deductions: inr(r.chapterViA),
+      // WEB-1 (25-11) · Both are taken off taxable income, as the Tax page's
+      // card lists them; without them the lines above did not add up to it.
+      employer_nps_80ccd2: inr(r.employerNps),
+      interest_deduction: inr(r.interestDeduction), interest_deduction_section: r.interestSection,
       taxable_income: inr(r.taxable), tax_before_rebate: inr(r.taxBeforeRebate), rebate_87a: inr(r.rebate), marginal_relief_87a: inr(r.marginalRelief),
       tax_on_capital_gains: inr(r.specialRateTax), surcharge: inr(r.surcharge), cess: inr(r.cess),
       total_tax: inr(r.total), effective_rate_pct: r.effectiveRatePct,
