@@ -9,7 +9,8 @@
 /* ------------------------------------------------------------------ hero -- */
 .hero { padding-block: var(--space-2xl) var(--space-2xl); }
 .hero__grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-2xl); align-items: end; }
-.hero h1 { max-width: 14ch; font-size: var(--text-display); line-height: 1.02; }
+.hero h1 { max-width: 16ch; font-size: min(var(--text-display), 5.4vw); line-height: 1.02; }
+.hero__line { white-space: nowrap; }
 .hero__side { display: grid; gap: var(--space-lg); justify-items: start; }
 .hero__new { display: inline-flex; align-items: center; gap: var(--space-xs); min-height: 44px; font-size: var(--text-sm); font-weight: 600; color: var(--color-ink); text-decoration: none; }
 .hero__new:hover { color: var(--color-accent); text-decoration: underline; text-underline-offset: 0.2em; }
@@ -128,6 +129,7 @@
 @media (max-width: 40rem) {
   .hero h1 { font-size: clamp(2.25rem, 9vw + 0.25rem, 2.75rem); }
   .hero h1 br { display: none; }
+  .hero__line { white-space: normal; }
   .proof { grid-template-columns: minmax(0, 1fr); }
   .proof li, .proof li:nth-child(3) { padding: var(--space-xs) 0; border-left: 0; }
   .leadrow__shot .frame img, .screen__shot .frame img { aspect-ratio: 7 / 9; }
